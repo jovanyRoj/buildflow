@@ -4,10 +4,8 @@ interface Props {
   label?: string
 }
 
-const CLIENT_ID = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID ?? ''
-const REDIRECT_URI = typeof window !== 'undefined'
-  ? `${window.location.origin}/api/auth/callback/github`
-  : 'https://buildflow.vercel.app/api/auth/callback/github'
+// Public client ID — safe to hardcode in client bundle
+const CLIENT_ID = 'Ov23liGiEnJnXfpCyT8V'
 
 export default function GitHubSignInButton({ label = 'Sign in with GitHub' }: Props) {
   function handleClick() {
