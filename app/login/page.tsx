@@ -6,6 +6,7 @@ import { loginUser, loginWithOAuth, getSession } from '@/lib/auth'
 import { useBuildFlowStore } from '@/lib/store'
 import { useHydrated } from '@/lib/useHydrated'
 import GoogleSignInButton from '@/components/auth/GoogleSignInButton'
+import GitHubSignInButton from '@/components/auth/GitHubSignInButton'
 
 export default function LoginPage() {
   const [email, setEmail]       = useState('')
@@ -113,6 +114,7 @@ export default function LoginPage() {
 
           {/* Social */}
           <div className="flex flex-col gap-2.5">
+            <GitHubSignInButton label="Sign in with GitHub" />
             <GoogleSignInButton onSuccess={handleGoogleSuccess} label="Sign in with Google" />
             <AppleButton />
           </div>

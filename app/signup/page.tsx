@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { registerUser, loginWithOAuth } from '@/lib/auth'
 import { useBuildFlowStore } from '@/lib/store'
 import GoogleSignInButton from '@/components/auth/GoogleSignInButton'
+import GitHubSignInButton from '@/components/auth/GitHubSignInButton'
 
 export default function SignUpPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
@@ -121,6 +122,7 @@ export default function SignUpPage() {
             <div className="flex-1 h-px bg-gray-200"/><span className="text-gray-400 text-xs">or sign up with</span><div className="flex-1 h-px bg-gray-200"/>
           </div>
 
+          <GitHubSignInButton label="Sign up with GitHub" />
           <GoogleSignInButton onSuccess={handleGoogleSuccess} label="Sign up with Google" />
 
           <p className="text-center text-gray-500 text-sm mt-5">
