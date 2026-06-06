@@ -9,10 +9,15 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@auth/core": "^0.34.3",
+    "@types/bcryptjs": "^2.4.6",
     "@types/uuid": "^10.0.0",
+    "@vercel/blob": "^2.4.0",
+    "bcryptjs": "^3.0.3",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.17.0",
     "next": "16.2.7",
+    "next-auth": "^5.0.0-beta.31",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "uuid": "^14.0.0",

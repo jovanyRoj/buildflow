@@ -1,32 +1,30 @@
 'use client'
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { format, parseISO, isPast } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { useBuildFlowStore } from '@/lib/store'
 import { ProjectStatusBadge } from '@/components/ui/StatusBadge'
 import BottomNav from '@/components/ui/BottomNav'
-import { useHydrated } from '@/lib/useHydrated'
+import { useAuthGuard } from '@/lib/useAuthGuard'
+import { useRouter } from 'next/navigation'
 
-export default function DashboardPage() {
-  const { currentUser, projects, logout } = useBuildFlowStore()
-  const router = useRouter()
-  const hydrated = useHydrated()
-
-  useEffect(() => {
-    if (hydrated && !currentUser) router.replace('/login')
-  }, [hydrated, currentUser])
-
-  if (!hydrated || !currentUser) return (
+function Spinner() {
+  return (
     <div className="min-h-screen flex items-center justify-center bg-[#F4F6F9]">
       <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"/>
     </div>
   )
+}
 
-  const active = projects.filter(p => p.status === 'active')
-  const delayed = projects.filter(p => p.status === 'delayed')
+export default function DashboardPage() {
+  const { projects, logout } = useBuildFlowStore()
+  const { ready, user } = useAuthGuard()
+  const router = useRouter()
+
+  if (!ready) return <Spinner />
+
+  const active    = projects.filter(p => p.status === 'active')
+  const delayed   = projects.filter(p => p.status === 'delayed')
   const completed = projects.filter(p => p.status === 'completed')
-  const total = projects.length
 
   const upcomingTasks = projects
     .flatMap(p => p.tasks.map(t => ({ ...t, projectName: p.name, projectId: p.id })))
@@ -41,7 +39,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-1">
           <div>
             <p className="text-white/60 text-sm">Good morning,</p>
-            <h1 className="text-white text-xl font-bold">{currentUser.name}</h1>
+            <h1 className="text-white text-xl font-bold">{user?.name ?? 'Builder'}</h1>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/notifications" className="relative p-2 bg-white/10 rounded-xl">
@@ -49,10 +47,7 @@ export default function DashboardPage() {
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
               </svg>
             </Link>
-            <button
-              onClick={() => { logout(); router.push('/login') }}
-              className="p-2 bg-white/10 rounded-xl"
-            >
+            <button onClick={() => { logout(); router.push('/login') }} className="p-2 bg-white/10 rounded-xl">
               <svg width="20" height="20" fill="none" stroke="white" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
               </svg>
@@ -65,8 +60,8 @@ export default function DashboardPage() {
       {/* Stats */}
       <div className="px-4 -mt-3">
         <div className="card p-4 grid grid-cols-3 gap-2">
-          <StatCard label="Active" value={active.length} color="text-blue-600" />
-          <StatCard label="Delayed" value={delayed.length} color="text-red-500" />
+          <StatCard label="Active"    value={active.length}    color="text-blue-600" />
+          <StatCard label="Delayed"   value={delayed.length}   color="text-red-500" />
           <StatCard label="Completed" value={completed.length} color="text-green-600" />
         </div>
       </div>
@@ -94,7 +89,14 @@ export default function DashboardPage() {
         </div>
 
         {projects.length === 0 ? (
-          <EmptyState onNew={() => router.push('/projects')} />
+          <div className="card p-8 flex flex-col items-center text-center">
+            <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
+              <svg width="28" height="28" fill="none" stroke="#2E7CF6" strokeWidth="1.5" viewBox="0 0 24 24"><path d="M2 7l10-5 10 5v10l-10 5-10-5V7z"/></svg>
+            </div>
+            <h3 className="font-semibold text-[#1A2B4A] mb-1">No projects yet</h3>
+            <p className="text-gray-400 text-sm mb-4">Create your first construction project</p>
+            <Link href="/projects" className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl">+ New Project</Link>
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {projects.slice(0, 4).map(p => (
@@ -113,10 +115,8 @@ export default function DashboardPage() {
                       <span className="text-xs font-semibold text-[#1A2B4A]">{p.progressPercentage}%</span>
                     </div>
                     <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${p.status === 'delayed' ? 'bg-red-500' : p.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}`}
-                        style={{ width: `${p.progressPercentage}%` }}
-                      />
+                      <div className={`h-full rounded-full transition-all ${p.status === 'delayed' ? 'bg-red-500' : p.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}`}
+                        style={{ width: `${p.progressPercentage}%` }} />
                     </div>
                   </div>
                   <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
@@ -161,23 +161,6 @@ function StatCard({ label, value, color }: { label: string; value: number; color
     <div className="text-center py-1">
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-    </div>
-  )
-}
-
-function EmptyState({ onNew }: { onNew: () => void }) {
-  return (
-    <div className="card p-8 flex flex-col items-center text-center">
-      <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
-        <svg width="28" height="28" fill="none" stroke="#2E7CF6" strokeWidth="1.5" viewBox="0 0 24 24">
-          <path d="M2 7l10-5 10 5v10l-10 5-10-5V7z"/>
-        </svg>
-      </div>
-      <h3 className="font-semibold text-[#1A2B4A] mb-1">No projects yet</h3>
-      <p className="text-gray-400 text-sm mb-4">Create your first construction project</p>
-      <button onClick={onNew} className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl">
-        + New Project
-      </button>
     </div>
   )
 }

@@ -2,30 +2,36 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { v4 as uuidv4 } from 'uuid'
-import { format, addDays } from 'date-fns'
-import { Project, Task, TaskStatus, HistoryEntry, AppNotification } from './types'
+import { Project, Task, HistoryEntry, AppNotification } from './types'
 import { generateTasks } from './taskDefaults'
-import {
-  rescheduleFromTask,
-  calculateProgress,
-  deriveProjectStatus,
-} from './scheduleEngine'
+import { rescheduleFromTask, calculateProgress, deriveProjectStatus } from './scheduleEngine'
+import { Session, getSession, saveSession, clearSession } from './auth'
+
+// Each user's projects stored under their own key: buildflow-storage-{userId}
+function getUserStorageKey(userId: string) {
+  return `buildflow-projects-${userId}`
+}
+
+function loadUserProjects(userId: string): Project[] {
+  if (typeof window === 'undefined') return []
+  try { return JSON.parse(localStorage.getItem(getUserStorageKey(userId)) || '[]') } catch { return [] }
+}
+
+function saveUserProjects(userId: string, projects: Project[]): void {
+  localStorage.setItem(getUserStorageKey(userId), JSON.stringify(projects))
+}
 
 interface BuildFlowStore {
   projects: Project[]
-  currentUser: { name: string; email: string } | null
+  currentUser: Session | null
 
   // Auth
-  login: (email: string, password: string) => boolean
+  setCurrentUser: (user: Session | null) => void
   logout: () => void
+  loadUserData: (userId: string) => void
 
   // Projects
-  createProject: (data: {
-    name: string
-    address: string
-    projectType: Project['projectType']
-    startDate: string
-  }) => Project
+  createProject: (data: { name: string; address: string; projectType: Project['projectType']; startDate: string }) => Project
   updateProject: (id: string, data: Partial<Pick<Project, 'name' | 'address' | 'estimatedEndDate' | 'status'>>) => void
   deleteProject: (id: string) => void
   getProject: (id: string) => Project | undefined
@@ -40,219 +46,168 @@ interface BuildFlowStore {
   getUnreadCount: () => number
 }
 
-const DEMO_USER = { name: 'Builder', email: 'builder@buildflow.app', password: 'build123' }
-
 export const useBuildFlowStore = create<BuildFlowStore>()(
-  persist(
-    (set, get) => ({
-      projects: [],
-      currentUser: null,
+  (set, get) => ({
+    projects: [],
+    currentUser: null,
 
-      login: (email, password) => {
-        if (email === DEMO_USER.email && password === DEMO_USER.password) {
-          set({ currentUser: { name: DEMO_USER.name, email: DEMO_USER.email } })
-          return true
+    setCurrentUser: (user) => {
+      if (user) {
+        saveSession(user)
+        const projects = loadUserProjects(user.id)
+        set({ currentUser: user, projects })
+      } else {
+        clearSession()
+        set({ currentUser: null, projects: [] })
+      }
+    },
+
+    logout: () => {
+      clearSession()
+      set({ currentUser: null, projects: [] })
+    },
+
+    loadUserData: (userId) => {
+      const projects = loadUserProjects(userId)
+      set({ projects })
+    },
+
+    createProject: (data) => {
+      const { currentUser, projects } = get()
+      const id = uuidv4()
+      const tasks = generateTasks(id, data.startDate)
+      const lastTask = tasks[tasks.length - 1]
+      const project: Project = {
+        id,
+        name: data.name,
+        address: data.address,
+        projectType: data.projectType,
+        startDate: data.startDate,
+        estimatedEndDate: lastTask.endDate,
+        status: 'active',
+        progressPercentage: 0,
+        tasks,
+        history: [{
+          id: uuidv4(),
+          projectId: id,
+          type: 'taskAdded',
+          description: 'Project created with 22 default tasks',
+          timestamp: new Date().toISOString(),
+        }],
+        notifications: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      const updated = [...projects, project]
+      if (currentUser) saveUserProjects(currentUser.id, updated)
+      set({ projects: updated })
+      return project
+    },
+
+    updateProject: (id, data) => {
+      const { currentUser } = get()
+      set(state => {
+        const updated = state.projects.map(p =>
+          p.id === id ? { ...p, ...data, updatedAt: new Date().toISOString() } : p
+        )
+        if (currentUser) saveUserProjects(currentUser.id, updated)
+        return { projects: updated }
+      })
+    },
+
+    deleteProject: (id) => {
+      const { currentUser } = get()
+      set(state => {
+        const updated = state.projects.filter(p => p.id !== id)
+        if (currentUser) saveUserProjects(currentUser.id, updated)
+        return { projects: updated }
+      })
+    },
+
+    getProject: (id) => get().projects.find(p => p.id === id),
+
+    updateTask: (projectId, taskId, data) => {
+      const { currentUser } = get()
+      set(state => {
+        const project = state.projects.find(p => p.id === projectId)
+        if (!project) return state
+        const oldTask = project.tasks.find(t => t.id === taskId)
+        if (!oldTask) return state
+
+        const historyEntries: HistoryEntry[] = []
+        const newNotifications: AppNotification[] = []
+
+        if (data.status && data.status !== oldTask.status) {
+          historyEntries.push({ id: uuidv4(), projectId, taskId, type: 'statusChange', description: `"${oldTask.name}" status changed`, previousValue: oldTask.status, newValue: data.status, timestamp: new Date().toISOString() })
+          if (data.status === 'delayed') {
+            newNotifications.push({ id: uuidv4(), projectId, taskId, type: 'delay', title: `${oldTask.name} marked as Delayed`, body: `This may affect downstream tasks. Timeline updated automatically.`, isRead: false, createdAt: new Date().toISOString() })
+          }
+          if (data.status === 'completed') {
+            newNotifications.push({ id: uuidv4(), projectId, taskId, type: 'completion', title: `${oldTask.name} completed`, body: `Task marked as completed successfully.`, isRead: false, createdAt: new Date().toISOString() })
+          }
         }
-        return false
-      },
 
-      logout: () => set({ currentUser: null }),
+        if (data.endDate && data.endDate !== oldTask.endDate) {
+          historyEntries.push({ id: uuidv4(), projectId, taskId, type: 'dateChange', description: `"${oldTask.name}" end date changed`, previousValue: oldTask.endDate, newValue: data.endDate, timestamp: new Date().toISOString() })
+        }
 
-      createProject: (data) => {
-        const id = uuidv4()
-        const tasks = generateTasks(id, data.startDate)
-        const lastTask = tasks[tasks.length - 1]
-        const project: Project = {
-          id,
-          name: data.name,
-          address: data.address,
-          projectType: data.projectType,
-          startDate: data.startDate,
-          estimatedEndDate: lastTask.endDate,
-          status: 'active',
-          progressPercentage: 0,
-          tasks,
-          history: [{
-            id: uuidv4(),
-            projectId: id,
-            type: 'taskAdded',
-            description: 'Project created with 22 default tasks',
-            timestamp: new Date().toISOString(),
-          }],
-          notifications: [],
-          createdAt: new Date().toISOString(),
+        let updatedTasks = project.tasks.map(t => t.id === taskId ? { ...t, ...data, updatedAt: new Date().toISOString() } : t)
+        let cascadeHistory: HistoryEntry[] = []
+        let cascadeNotifs: AppNotification[] = []
+
+        if (data.endDate && data.endDate !== oldTask.endDate) {
+          const result = rescheduleFromTask(updatedTasks, taskId)
+          updatedTasks = result.updatedTasks
+          cascadeHistory = result.historyEntries
+          cascadeNotifs = result.notifications
+          if (cascadeNotifs.length > 0) {
+            cascadeNotifs = [{ id: uuidv4(), projectId, type: 'alert', title: `${project.name} timeline updated`, body: `${cascadeNotifs.length} task(s) were rescheduled automatically.`, isRead: false, createdAt: new Date().toISOString() }, ...cascadeNotifs]
+          }
+        }
+
+        const updatedProject: Project = {
+          ...project,
+          tasks: updatedTasks,
+          progressPercentage: calculateProgress(updatedTasks),
+          status: deriveProjectStatus(updatedTasks),
+          estimatedEndDate: updatedTasks[updatedTasks.length - 1].endDate,
+          history: [...project.history, ...historyEntries, ...cascadeHistory],
+          notifications: [...project.notifications, ...newNotifications, ...cascadeNotifs],
           updatedAt: new Date().toISOString(),
         }
-        set(state => ({ projects: [...state.projects, project] }))
-        return project
-      },
 
-      updateProject: (id, data) => {
-        set(state => ({
-          projects: state.projects.map(p =>
-            p.id === id ? { ...p, ...data, updatedAt: new Date().toISOString() } : p
-          ),
-        }))
-      },
+        const updated = state.projects.map(p => p.id === projectId ? updatedProject : p)
+        if (currentUser) saveUserProjects(currentUser.id, updated)
+        return { projects: updated }
+      })
+    },
 
-      deleteProject: (id) => {
-        set(state => ({ projects: state.projects.filter(p => p.id !== id) }))
-      },
-
-      getProject: (id) => get().projects.find(p => p.id === id),
-
-      updateTask: (projectId, taskId, data) => {
-        set(state => {
-          const project = state.projects.find(p => p.id === projectId)
-          if (!project) return state
-
-          const oldTask = project.tasks.find(t => t.id === taskId)
-          if (!oldTask) return state
-
-          const historyEntries: HistoryEntry[] = []
-          const newNotifications: AppNotification[] = []
-
-          // Build history for each changed field
-          if (data.status && data.status !== oldTask.status) {
-            historyEntries.push({
-              id: uuidv4(),
-              projectId,
-              taskId,
-              type: 'statusChange',
-              description: `"${oldTask.name}" status changed`,
-              previousValue: oldTask.status,
-              newValue: data.status,
-              timestamp: new Date().toISOString(),
-            })
-
-            if (data.status === 'delayed') {
-              newNotifications.push({
-                id: uuidv4(),
-                projectId,
-                taskId,
-                type: 'delay',
-                title: `${oldTask.name} marked as Delayed`,
-                body: `This may affect downstream tasks. Timeline updated automatically.`,
-                isRead: false,
-                createdAt: new Date().toISOString(),
-              })
-            }
-
-            if (data.status === 'completed') {
-              newNotifications.push({
-                id: uuidv4(),
-                projectId,
-                taskId,
-                type: 'completion',
-                title: `${oldTask.name} completed`,
-                body: `Task marked as completed successfully.`,
-                isRead: false,
-                createdAt: new Date().toISOString(),
-              })
-            }
-          }
-
-          if (data.endDate && data.endDate !== oldTask.endDate) {
-            historyEntries.push({
-              id: uuidv4(),
-              projectId,
-              taskId,
-              type: 'dateChange',
-              description: `"${oldTask.name}" end date changed`,
-              previousValue: oldTask.endDate,
-              newValue: data.endDate,
-              timestamp: new Date().toISOString(),
-            })
-          }
-
-          // Apply the change to the task
-          let updatedTasks = project.tasks.map(t =>
-            t.id === taskId ? { ...t, ...data, updatedAt: new Date().toISOString() } : t
-          )
-
-          // If end date changed or status is delayed → cascade reschedule
-          let cascadeHistory: HistoryEntry[] = []
-          let cascadeNotifs: AppNotification[] = []
-
-          if (data.endDate && data.endDate !== oldTask.endDate) {
-            const result = rescheduleFromTask(updatedTasks, taskId)
-            updatedTasks = result.updatedTasks
-            cascadeHistory = result.historyEntries
-            cascadeNotifs = result.notifications
-
-            if (cascadeNotifs.length > 0) {
-              const projectAlert: AppNotification = {
-                id: uuidv4(),
-                projectId,
-                type: 'alert',
-                title: `${project.name} timeline updated`,
-                body: `${cascadeNotifs.length} task(s) were rescheduled automatically.`,
-                isRead: false,
-                createdAt: new Date().toISOString(),
-              }
-              cascadeNotifs = [projectAlert, ...cascadeNotifs]
-            }
-          }
-
-          const progress = calculateProgress(updatedTasks)
-          const projectStatus = deriveProjectStatus(updatedTasks)
-          const lastTask = updatedTasks[updatedTasks.length - 1]
-
-          const updatedProject: Project = {
-            ...project,
-            tasks: updatedTasks,
-            progressPercentage: progress,
-            status: projectStatus,
-            estimatedEndDate: lastTask.endDate,
-            history: [...project.history, ...historyEntries, ...cascadeHistory],
-            notifications: [...project.notifications, ...newNotifications, ...cascadeNotifs],
-            updatedAt: new Date().toISOString(),
-          }
-
-          return {
-            projects: state.projects.map(p => p.id === projectId ? updatedProject : p),
-          }
-        })
-      },
-
-      markNotificationRead: (projectId, notifId) => {
-        set(state => ({
-          projects: state.projects.map(p =>
-            p.id === projectId
-              ? {
-                  ...p,
-                  notifications: p.notifications.map(n =>
-                    n.id === notifId ? { ...n, isRead: true } : n
-                  ),
-                }
-              : p
-          ),
-        }))
-      },
-
-      markAllNotificationsRead: (projectId) => {
-        set(state => ({
-          projects: state.projects.map(p =>
-            p.id === projectId
-              ? { ...p, notifications: p.notifications.map(n => ({ ...n, isRead: true })) }
-              : p
-          ),
-        }))
-      },
-
-      getAllNotifications: () => {
-        return get()
-          .projects.flatMap(p => p.notifications)
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      },
-
-      getUnreadCount: () => {
-        return get().projects.reduce(
-          (sum, p) => sum + p.notifications.filter(n => !n.isRead).length,
-          0
+    markNotificationRead: (projectId, notifId) => {
+      const { currentUser } = get()
+      set(state => {
+        const updated = state.projects.map(p =>
+          p.id === projectId ? { ...p, notifications: p.notifications.map(n => n.id === notifId ? { ...n, isRead: true } : n) } : p
         )
-      },
-    }),
-    { name: 'buildflow-storage' }
-  )
+        if (currentUser) saveUserProjects(currentUser.id, updated)
+        return { projects: updated }
+      })
+    },
+
+    markAllNotificationsRead: (projectId) => {
+      const { currentUser } = get()
+      set(state => {
+        const updated = state.projects.map(p =>
+          p.id === projectId ? { ...p, notifications: p.notifications.map(n => ({ ...n, isRead: true })) } : p
+        )
+        if (currentUser) saveUserProjects(currentUser.id, updated)
+        return { projects: updated }
+      })
+    },
+
+    getAllNotifications: () =>
+      get().projects.flatMap(p => p.notifications).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+
+    getUnreadCount: () =>
+      get().projects.reduce((sum, p) => sum + p.notifications.filter(n => !n.isRead).length, 0),
+  })
 )

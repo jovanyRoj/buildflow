@@ -1,6 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import { useBuildFlowStore } from '@/lib/store'
@@ -8,23 +7,22 @@ import { ProjectStatusBadge } from '@/components/ui/StatusBadge'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal'
-import { useHydrated } from '@/lib/useHydrated'
+import { useAuthGuard } from '@/lib/useAuthGuard'
 
-export default function ProjectsPage() {
-  const { currentUser, projects } = useBuildFlowStore()
-  const router = useRouter()
-  const hydrated = useHydrated()
-  const [showCreate, setShowCreate] = useState(false)
-
-  useEffect(() => {
-    if (hydrated && !currentUser) router.replace('/login')
-  }, [hydrated, currentUser])
-
-  if (!hydrated || !currentUser) return (
+function Spinner() {
+  return (
     <div className="min-h-screen flex items-center justify-center bg-[#F4F6F9]">
       <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"/>
     </div>
   )
+}
+
+export default function ProjectsPage() {
+  const { projects } = useBuildFlowStore()
+  const { ready } = useAuthGuard()
+  const [showCreate, setShowCreate] = useState(false)
+
+  if (!ready) return <Spinner />
 
   return (
     <div className="pb-24">
@@ -32,10 +30,8 @@ export default function ProjectsPage() {
         title="Projects"
         backHref="/dashboard"
         action={
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-xl"
-          >
+          <button onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-xl">
             <svg width="14" height="14" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
             New
           </button>
@@ -46,9 +42,7 @@ export default function ProjectsPage() {
         {projects.length === 0 ? (
           <div className="card p-8 flex flex-col items-center text-center mt-8">
             <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
-              <svg width="28" height="28" fill="none" stroke="#2E7CF6" strokeWidth="1.5" viewBox="0 0 24 24">
-                <path d="M2 7l10-5 10 5v10l-10 5-10-5V7z"/>
-              </svg>
+              <svg width="28" height="28" fill="none" stroke="#2E7CF6" strokeWidth="1.5" viewBox="0 0 24 24"><path d="M2 7l10-5 10 5v10l-10 5-10-5V7z"/></svg>
             </div>
             <h3 className="font-semibold text-[#1A2B4A] mb-1">No projects yet</h3>
             <p className="text-gray-400 text-sm mb-4">Tap "New" to create your first project</p>
@@ -67,37 +61,19 @@ export default function ProjectsPage() {
                   </div>
                   <ProjectStatusBadge status={p.status} />
                 </div>
-
                 <div className="mt-3">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs text-gray-500">Overall progress</span>
                     <span className="text-xs font-bold text-[#1A2B4A]">{p.progressPercentage}%</span>
                   </div>
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${p.status === 'delayed' ? 'bg-red-500' : p.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}`}
-                      style={{ width: `${p.progressPercentage}%` }}
-                    />
+                    <div className={`h-full rounded-full transition-all duration-500 ${p.status === 'delayed' ? 'bg-red-500' : p.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}`}
+                      style={{ width: `${p.progressPercentage}%` }} />
                   </div>
                 </div>
-
                 <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
                   <span>Start: {format(parseISO(p.startDate), 'MMM d, yyyy')}</span>
                   <span>Close: {format(parseISO(p.estimatedEndDate), 'MMM d, yyyy')}</span>
-                </div>
-
-                <div className="flex items-center gap-2 mt-2">
-                  {(['pending','active','delayed','completed'] as const).map(s => {
-                    const count = p.tasks.filter(t => t.status === s).length
-                    if (count === 0) return null
-                    const dot: Record<string, string> = { pending: 'bg-gray-300', active: 'bg-blue-500', delayed: 'bg-red-500', completed: 'bg-green-500' }
-                    return (
-                      <span key={s} className="flex items-center gap-1 text-xs text-gray-500">
-                        <span className={`w-1.5 h-1.5 rounded-full ${dot[s]}`}/>
-                        {count}
-                      </span>
-                    )
-                  })}
                 </div>
               </div>
             </Link>
