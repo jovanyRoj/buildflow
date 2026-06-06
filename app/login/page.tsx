@@ -31,7 +31,7 @@ export default function LoginPage() {
       <div
         className="absolute inset-0 bg-cover bg-center"
         style={{
-          backgroundImage: `linear-gradient(to bottom, rgba(26,43,74,0.55) 0%, rgba(26,43,74,0.3) 50%, rgba(26,43,74,0.7) 100%), url('/login_background.jpg')`,
+          backgroundImage: `linear-gradient(to bottom, rgba(13,27,56,0.60) 0%, rgba(26,43,74,0.35) 45%, rgba(10,20,40,0.72) 100%), url('/login_background.jpg')`,
           backgroundSize: 'cover',
         }}
       />
