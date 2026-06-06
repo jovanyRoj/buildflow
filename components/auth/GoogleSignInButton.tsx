@@ -1,90 +1,30 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
 
 interface Props {
-  onSuccess: (profile: { id: string; name: string; email: string; avatar?: string }) => void
+  onSuccess?: (profile: { id: string; name: string; email: string; avatar?: string }) => void
   label?: string
 }
 
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (cfg: object) => void
-          renderButton: (el: HTMLElement, cfg: object) => void
-          prompt: () => void
-        }
-      }
-    }
-  }
-}
-
-const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? ''
-
-export default function GoogleSignInButton({ onSuccess, label = 'Sign in with Google' }: Props) {
-  const btnRef = useRef<HTMLDivElement>(null)
-  const [fallback, setFallback] = useState(false)
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) { setFallback(true); return }
-
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.defer = true
-    script.onload = () => {
-      if (!window.google || !btnRef.current) return
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (resp: { credential: string }) => {
-          // Decode the JWT credential
-          const payload = JSON.parse(atob(resp.credential.split('.')[1]))
-          onSuccess({
-            id: payload.sub,
-            name: payload.name,
-            email: payload.email,
-            avatar: payload.picture,
-          })
-        },
-        auto_select: false,
-      })
-      window.google.accounts.id.renderButton(btnRef.current!, {
-        theme: 'outline',
-        size: 'large',
-        width: btnRef.current!.offsetWidth || 320,
-        text: 'signin_with',
-      })
-      setLoaded(true)
-    }
-    script.onerror = () => setFallback(true)
-    document.head.appendChild(script)
-    return () => { script.remove() }
-  }, [])
-
-  if (fallback || !GOOGLE_CLIENT_ID) {
-    return (
-      <a
-        href="https://accounts.google.com/o/oauth2/v2/auth?response_type=token&client_id=YOUR_CLIENT_ID&redirect_uri=postmessage&scope=openid%20email%20profile"
-        onClick={e => { e.preventDefault(); alert('Google Sign-In requires setup in Vercel environment variables.\n\nGo to Vercel → Your project → Settings → Environment Variables\nAdd: NEXT_PUBLIC_GOOGLE_CLIENT_ID') }}
-        className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
-      >
-        <GoogleIcon />
-        {label}
-      </a>
-    )
+export default function GoogleSignInButton({ label = 'Sign in with Google' }: Props) {
+  function handleClick() {
+    const params = new URLSearchParams({
+      client_id:     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? '',
+      redirect_uri:  `${window.location.origin}/api/auth/callback/google`,
+      response_type: 'code',
+      scope:         'openid email profile',
+      access_type:   'online',
+    })
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`
   }
 
   return (
-    <div className="w-full overflow-hidden rounded-xl" style={{ minHeight: 44 }}>
-      <div ref={btnRef} className="w-full" />
-      {!loaded && (
-        <div className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700">
-          <GoogleIcon />{label}
-        </div>
-      )}
-    </div>
+    <button
+      onClick={handleClick}
+      className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 active:scale-[0.98] transition"
+    >
+      <GoogleIcon />
+      {label}
+    </button>
   )
 }
 
