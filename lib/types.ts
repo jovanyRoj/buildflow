@@ -1,23 +1,40 @@
-export type TaskStatus = 'pending' | 'active' | 'delayed' | 'completed'
+export type TaskStatus = 'pending' | 'active' | 'in_progress' | 'delayed' | 'completed'
 export type ProjectStatus = 'active' | 'delayed' | 'completed' | 'closed'
 export type ProjectType = 'singleFamily' | 'remodel' | 'duplex' | 'commercial'
-export type HistoryType = 'statusChange' | 'dateChange' | 'reschedule' | 'taskAdded' | 'taskRemoved' | 'noteChange'
-export type NotificationType = 'delay' | 'reschedule' | 'completion' | 'alert'
+export type HistoryType = 'statusChange' | 'dateChange' | 'reschedule' | 'taskAdded' | 'taskRemoved' | 'noteChange' | 'inspectionUpdate' | 'subNotified'
+export type NotificationType = 'delay' | 'reschedule' | 'completion' | 'alert' | 'inspection' | 'subcontractor'
+export type InspectionStatus = 'not_required' | 'pending' | 'scheduled' | 'passed' | 'failed'
+
+export interface Subcontractor {
+  id: string
+  name: string
+  phone: string               // E.164 format: +15551234567
+  trade: string               // e.g. "Electrical", "Plumbing", "Framing"
+  email?: string
+  notes?: string
+}
 
 export interface Task {
   id: string
   projectId: string
   name: string
   order: number
-  startDate: string // ISO date string
+  startDate: string
   endDate: string
   originalEndDate: string
   durationDays: number
   status: TaskStatus
   delayDays: number
-  assignedTo: string
+  assignedTo: string           // display name
+  subcontractorId?: string
+  subcontractorPhone?: string  // direct phone for SMS
   notes: string
-  dependencies: string[] // task ids
+  dependencies: string[]
+  inspectionRequired: boolean
+  inspectionStatus: InspectionStatus
+  inspectionNotes?: string
+  portalToken?: string         // unique token for subcontractor web portal
+  smsLastSent?: string         // ISO timestamp
   updatedAt: string
 }
 
@@ -54,6 +71,7 @@ export interface Project {
   status: ProjectStatus
   progressPercentage: number
   tasks: Task[]
+  subcontractors: Subcontractor[]
   history: HistoryEntry[]
   notifications: AppNotification[]
   createdAt: string

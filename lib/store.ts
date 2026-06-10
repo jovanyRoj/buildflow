@@ -2,7 +2,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { v4 as uuidv4 } from 'uuid'
-import { Project, Task, HistoryEntry, AppNotification } from './types'
+import { Project, Task, HistoryEntry, AppNotification, InspectionStatus } from './types'
 import { generateTasks } from './taskDefaults'
 import { rescheduleFromTask, calculateProgress, deriveProjectStatus } from './scheduleEngine'
 import { Session, getSession, saveSession, clearSession } from './auth'
@@ -37,7 +37,7 @@ interface BuildFlowStore {
   getProject: (id: string) => Project | undefined
 
   // Tasks
-  updateTask: (projectId: string, taskId: string, data: Partial<Pick<Task, 'name' | 'status' | 'startDate' | 'endDate' | 'notes' | 'assignedTo'>>) => void
+  updateTask: (projectId: string, taskId: string, data: Partial<Pick<Task, 'name' | 'status' | 'startDate' | 'endDate' | 'notes' | 'assignedTo' | 'subcontractorPhone' | 'inspectionStatus' | 'inspectionNotes'>>) => void
 
   // Notifications
   markNotificationRead: (projectId: string, notifId: string) => void
@@ -94,6 +94,7 @@ export const useBuildFlowStore = create<BuildFlowStore>()(
           description: 'Project created with 22 default tasks',
           timestamp: new Date().toISOString(),
         }],
+        subcontractors: [],
         notifications: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -144,7 +145,38 @@ export const useBuildFlowStore = create<BuildFlowStore>()(
           }
           if (data.status === 'completed') {
             newNotifications.push({ id: uuidv4(), projectId, taskId, type: 'completion', title: `${oldTask.name} completed`, body: `Task marked as completed successfully.`, isRead: false, createdAt: new Date().toISOString() })
+            // Auto-cascade: notify next subcontractors via SMS
+            const directDependents = project.tasks.filter(t => t.dependencies.includes(taskId) && t.subcontractorPhone)
+            for (const nextTask of directDependents) {
+              fetch('/api/sms/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'cascade', nextTask, project, completedTaskName: oldTask.name }),
+              }).catch(() => {})
+              newNotifications.push({
+                id: uuidv4(), projectId, taskId: nextTask.id, type: 'subcontractor',
+                title: `SMS sent to ${nextTask.assignedTo || 'next subcontractor'}`,
+                body: `"${nextTask.name}" — ${nextTask.assignedTo || 'Subcontractor'} was notified automatically`,
+                isRead: false, createdAt: new Date().toISOString(),
+              })
+            }
           }
+        }
+
+        // Inspection status change history
+        if (data.inspectionStatus && data.inspectionStatus !== oldTask.inspectionStatus) {
+          historyEntries.push({
+            id: uuidv4(), projectId, taskId, type: 'inspectionUpdate',
+            description: `"${oldTask.name}" inspection: ${data.inspectionStatus.toUpperCase()}`,
+            previousValue: oldTask.inspectionStatus, newValue: data.inspectionStatus,
+            timestamp: new Date().toISOString(),
+          })
+          newNotifications.push({
+            id: uuidv4(), projectId, taskId, type: 'inspection',
+            title: `${oldTask.name} — Inspection ${data.inspectionStatus}`,
+            body: data.inspectionStatus === 'passed' ? '✅ Inspection passed! Ready for next phase.' : data.inspectionStatus === 'failed' ? '❌ Inspection failed. Review required.' : 'Inspection status updated.',
+            isRead: false, createdAt: new Date().toISOString(),
+          })
         }
 
         if (data.endDate && data.endDate !== oldTask.endDate) {

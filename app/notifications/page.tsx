@@ -7,10 +7,12 @@ import { NotificationType } from '@/lib/types'
 import { useAuthGuard } from '@/lib/useAuthGuard'
 
 const NOTIF_ICONS: Record<NotificationType, { icon: string; bg: string; text: string }> = {
-  delay:      { icon: '⚠️', bg: 'bg-red-50',    text: 'text-red-600' },
-  reschedule: { icon: '📅', bg: 'bg-amber-50',  text: 'text-amber-700' },
-  completion: { icon: '✅', bg: 'bg-green-50',  text: 'text-green-700' },
-  alert:      { icon: '🔔', bg: 'bg-blue-50',   text: 'text-blue-700' },
+  delay:          { icon: '⚠️', bg: 'bg-red-50',     text: 'text-red-600' },
+  reschedule:     { icon: '📅', bg: 'bg-amber-50',   text: 'text-amber-700' },
+  completion:     { icon: '✅', bg: 'bg-green-50',   text: 'text-green-700' },
+  alert:          { icon: '🔔', bg: 'bg-blue-50',    text: 'text-blue-700' },
+  inspection:     { icon: '🏛️', bg: 'bg-purple-50',  text: 'text-purple-700' },
+  subcontractor:  { icon: '👷', bg: 'bg-orange-50',  text: 'text-orange-700' },
 }
 
 export default function NotificationsPage() {
