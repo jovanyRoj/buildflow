@@ -5,9 +5,7 @@
   --brand-blue: #2E7CF6;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   background: #F4F6F9;
@@ -28,6 +26,23 @@ body {
   background: white;
   border-radius: 12px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.04);
+}
+
+/* Reusable input class */
+.input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 0.875rem;
+  color: #1A2B4A;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input:focus {
+  outline: none;
+  border-color: #2E7CF6;
+  box-shadow: 0 0 0 3px rgba(46,124,246,0.12);
 }
 
 html { scroll-behavior: smooth; }

@@ -45,8 +45,12 @@ export default function ProjectDetailPage() {
         backHref="/projects"
         action={
           <div className="flex items-center gap-2">
+            <Link href={`/projects/${project.id}/contractors`}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-orange-500 text-white text-xs font-semibold rounded-xl">
+              👷 Subs
+            </Link>
             <Link href={`/projects/${project.id}/timeline`}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-xl">
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-xl">
               <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2" viewBox="0 0 24 24"><line x1="17" y1="12" x2="3" y2="12"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
               Timeline
             </Link>
