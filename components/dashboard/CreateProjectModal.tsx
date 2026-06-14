@@ -19,7 +19,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
     e.preventDefault()
     setSaving(true)
     await new Promise(r => setTimeout(r, 400))
-    const project = createProject(form)
+    const project = await createProject(form)
     onClose()
     router.push(`/projects/${project.id}`)
   }

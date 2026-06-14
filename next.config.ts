@@ -1,10 +1,6 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  // Allow builds even with TypeScript/ESLint errors during development
-  typescript: { ignoreBuildErrors: false },
-  eslint: { ignoreDuringBuilds: false },
-
   // Serve SW with correct headers
   async headers() {
     return [
