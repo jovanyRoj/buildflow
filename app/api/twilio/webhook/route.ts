@@ -1,71 +1,206 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
+import { askSofia, SofiaContext } from '@/lib/sofia'
+import { sendSMS } from '@/lib/sms'
 
-// Sofia AI — interpreta respuestas SMS de subcontratistas
-function interpretSofiaReply(body: string): { action: string; days?: number } | null {
-  const text = body.trim().toUpperCase()
-
-  if (/^(START|INICIO|STARTED|EMPEZANDO|COMENZANDO)/.test(text))
-    return { action: 'in_progress' }
-  if (/^(DONE|COMPLETE|COMPLETADO|LISTO|FINISHED|TERMINADO)/.test(text))
-    return { action: 'completed' }
-  if (/^DELAY/.test(text) || /^RETRASO/.test(text) || /^RETRASADO/.test(text)) {
-    const match = text.match(/(\d+)/)
-    return { action: 'delayed', days: match ? parseInt(match[1]) : 1 }
-  }
-  if (/^(INSPECTION|INSPECCION|INSPECCIÓN)/.test(text)) {
-    if (/PASS|PASSED|PASO|PASÓ|OK/.test(text)) return { action: 'inspection_passed' }
-    if (/FAIL|FAILED|FALLO|FALLÓ|NO/.test(text)) return { action: 'inspection_failed' }
-    return { action: 'inspection_scheduled' }
-  }
-  if (/^HELP/.test(text) || /^AYUDA/.test(text)) return { action: 'help' }
-  return null
-}
+// ─── POST /api/twilio/webhook ─────────────────────────────────────────────────
+// Twilio calls this when a subcontractor texts the BuildFlow number.
 
 export async function POST(req: NextRequest) {
+  let twimlReply = ''
+
   try {
-    const formData = await req.formData()
-    const from = formData.get('From') as string
-    const body = formData.get('Body') as string
+    const form = await req.formData()
+    const from: string = (form.get('From') as string) ?? ''
+    const body: string = (form.get('Body') as string) ?? ''
 
-    console.log(`SMS from ${from}: ${body}`)
+    console.log(`[Sofia] SMS from ${from}: "${body}"`)
 
-    const interpretation = interpretSofiaReply(body)
+    // 1. Look up active task for this phone number
+    const ctx = await getContextForPhone(from)
 
-    let responseText = ''
-
-    if (!interpretation) {
-      responseText = `BuildFlow: Sofia didn't understand "${body}". Reply: START | DONE | DELAY [days] | INSPECTION PASSED | INSPECTION FAILED | HELP`
-    } else if (interpretation.action === 'help') {
-      responseText = `BuildFlow Commands:
-START — Task in progress
-DONE — Task completed
-DELAY 3 — Delayed 3 days
-INSPECTION PASSED
-INSPECTION FAILED
-Or update via your link.`
+    if (!ctx) {
+      // Unknown number — Sofia responds generically
+      twimlReply = 'Hi! This is BuildFlow. We don\'t have an active task for your number. ' +
+        'Contact your builder for access.'
     } else {
-      // Sofia confirms the action — actual update happens via the portal link
-      const actionMessages: Record<string, string> = {
-        in_progress:          '✅ Got it! Marked as In Progress.',
-        completed:            '🎉 Great! Marked as Completed. Builder notified.',
-        delayed:              `⚠️ Noted. Marked as Delayed${interpretation.days ? ` ${interpretation.days} day(s)` : ''}. Please update your portal with the new date.`,
-        inspection_passed:    '✅ Inspection PASSED logged! Builder notified.',
-        inspection_failed:    '❌ Inspection FAILED logged. Builder notified.',
-        inspection_scheduled: '📅 Inspection scheduled noted.',
+      // 2. Ask Sofia (Claude AI)
+      const sofia = await askSofia(body, ctx)
+      console.log('[Sofia] Response:', sofia)
+
+      // 3. Execute action in Supabase
+      if (sofia.action === 'update_status' && sofia.newStatus && ctx.taskId) {
+        await updateTaskStatus(ctx, sofia.newStatus, sofia.delayDays ?? 0)
       }
-      responseText = `BuildFlow Sofia: ${actionMessages[interpretation.action] ?? 'Update received!'}`
+      if (sofia.action === 'inspection_update' && sofia.inspectionStatus && ctx.taskId) {
+        await updateInspection(ctx, sofia.inspectionStatus)
+      }
+
+      // 4. Log notification in app
+      await logNotification(ctx, sofia)
+
+      // 5. Alert builder via SMS if high urgency
+      if (sofia.urgency === 'high' && sofia.builderAlert) {
+        await notifyBuilder(ctx, sofia.builderAlert)
+      }
+
+      twimlReply = sofia.reply
     }
-
-    // Return TwiML response
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response><Message>${responseText}</Message></Response>`
-
-    return new NextResponse(twiml, {
-      headers: { 'Content-Type': 'text/xml' },
-    })
   } catch (e: any) {
-    console.error('Webhook error:', e)
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`
-    return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
+    console.error('[Sofia] Webhook error:', e)
+    twimlReply = 'BuildFlow received your message. We\'ll follow up shortly.'
   }
+
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response><Message>${escapeXml(twimlReply)}</Message></Response>`
+
+  return new NextResponse(twiml, {
+    headers: { 'Content-Type': 'text/xml' },
+  })
+}
+
+// ─── Supabase lookups ─────────────────────────────────────────────────────────
+
+async function getContextForPhone(phone: string): Promise<SofiaContext | null> {
+  // Normalize phone for comparison
+  const normalized = phone.replace(/\D/g, '')
+
+  // Find task assigned to this phone
+  const { data: tasks } = await supabaseAdmin
+    .from('bf_tasks')
+    .select(`
+      id, project_id, name, status, start_date, end_date, notes,
+      inspection_required, assigned_to, subcontractor_phone,
+      bf_projects!inner(id, name, address, user_id)
+    `)
+    .or(`subcontractor_phone.eq.${phone},subcontractor_phone.eq.+${normalized}`)
+    .in('status', ['pending', 'active', 'in_progress', 'delayed'])
+    .order('task_order', { ascending: true })
+    .limit(1)
+
+  if (!tasks || tasks.length === 0) return null
+
+  const task = tasks[0]
+  const project = (task as any).bf_projects
+
+  // Look up sub name
+  const { data: sub } = await supabaseAdmin
+    .from('bf_subcontractors')
+    .select('name')
+    .or(`phone.eq.${phone},phone.eq.+${normalized}`)
+    .limit(1)
+    .maybeSingle()
+
+  return {
+    subName: sub?.name ?? task.assigned_to ?? '',
+    subPhone: phone,
+    taskId: task.id,
+    taskName: task.name,
+    taskStatus: task.status,
+    taskStartDate: task.start_date,
+    taskEndDate: task.end_date,
+    taskNotes: task.notes ?? '',
+    inspectionRequired: task.inspection_required ?? false,
+    projectId: project.id,
+    projectName: project.name,
+    projectAddress: project.address,
+    userId: project.user_id,
+  }
+}
+
+// ─── Task updates ─────────────────────────────────────────────────────────────
+
+async function updateTaskStatus(
+  ctx: SofiaContext,
+  newStatus: string,
+  delayDays: number
+) {
+  const updates: Record<string, any> = {
+    status: newStatus,
+    updated_at: new Date().toISOString(),
+  }
+
+  if (newStatus === 'completed') {
+    updates.sms_last_sent = new Date().toISOString()
+  }
+
+  await supabaseAdmin
+    .from('bf_tasks')
+    .update(updates)
+    .eq('id', ctx.taskId)
+
+  // Log history
+  await supabaseAdmin.from('bf_history').insert({
+    id: crypto.randomUUID(),
+    project_id: ctx.projectId,
+    task_id: ctx.taskId,
+    type: 'statusChange',
+    description: `"${ctx.taskName}" → ${newStatus} (via SMS by ${ctx.subName || 'sub'})`,
+    previous_value: ctx.taskStatus,
+    new_value: newStatus,
+    created_at: new Date().toISOString(),
+  })
+}
+
+async function updateInspection(ctx: SofiaContext, inspectionStatus: string) {
+  await supabaseAdmin
+    .from('bf_tasks')
+    .update({ inspection_status: inspectionStatus, updated_at: new Date().toISOString() })
+    .eq('id', ctx.taskId)
+
+  await supabaseAdmin.from('bf_history').insert({
+    id: crypto.randomUUID(),
+    project_id: ctx.projectId,
+    task_id: ctx.taskId,
+    type: 'inspectionUpdate',
+    description: `"${ctx.taskName}" inspection: ${inspectionStatus.toUpperCase()} (via SMS)`,
+    new_value: inspectionStatus,
+    created_at: new Date().toISOString(),
+  })
+}
+
+async function logNotification(ctx: SofiaContext, sofia: any) {
+  const icons: Record<string, string> = {
+    update_status: sofia.newStatus === 'completed' ? '✅' : sofia.newStatus === 'delayed' ? '⚠️' : '🔨',
+    flag_blocker: '🚨',
+    inspection_update: sofia.inspectionStatus === 'passed' ? '✅' : '📋',
+    answer_question: '💬',
+    no_action: '📩',
+  }
+
+  await supabaseAdmin.from('bf_notifications').insert({
+    id: crypto.randomUUID(),
+    project_id: ctx.projectId,
+    task_id: ctx.taskId,
+    type: sofia.urgency === 'high' ? 'alert' : 'subcontractor',
+    title: `${icons[sofia.action] ?? '📩'} ${ctx.subName || 'Sub'} — ${ctx.taskName}`,
+    body: sofia.builderAlert ?? sofia.reply,
+    is_read: false,
+    created_at: new Date().toISOString(),
+  })
+}
+
+async function notifyBuilder(ctx: SofiaContext, alertMessage: string) {
+  // Get builder's phone from bf_users (if stored)
+  const { data: user } = await supabaseAdmin
+    .from('bf_users')
+    .select('phone')
+    .eq('id', ctx.userId)
+    .maybeSingle()
+
+  if (user?.phone) {
+    await sendSMS(
+      user.phone,
+      `🚨 BuildFlow Alert — ${ctx.projectName}\n${alertMessage}\n📋 Task: ${ctx.taskName}`
+    )
+  }
+}
+
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
 }
