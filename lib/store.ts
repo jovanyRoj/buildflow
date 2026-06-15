@@ -17,7 +17,7 @@ interface BuildFlowStore {
   loading: boolean
 
   // Auth
-  setCurrentUser: (user: Session | null) => void
+  setCurrentUser: (user: Session | null) => Promise<void>
   logout: () => void
   initSession: () => Promise<void>
 
