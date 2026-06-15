@@ -14,15 +14,15 @@ export function useAuthGuard() {
     if (!currentUser) {
       const session = getSession()
       if (session) {
-        setCurrentUser(session)
-        setReady(true)
+        // Await setCurrentUser so projects load before marking ready
+        setCurrentUser(session).then(() => setReady(true))
       } else {
         router.replace('/login')
       }
     } else {
       setReady(true)
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { ready, user: currentUser }
 }
