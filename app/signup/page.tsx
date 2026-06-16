@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { registerUser, loginWithOAuth } from '@/lib/auth'
+import { registerUser } from '@/lib/auth'
 import { useBuildFlowStore } from '@/lib/store'
 import GoogleSignInButton from '@/components/auth/GoogleSignInButton'
 import GitHubSignInButton from '@/components/auth/GitHubSignInButton'
@@ -10,6 +10,7 @@ import GitHubSignInButton from '@/components/auth/GitHubSignInButton'
 export default function SignUpPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
   const [error, setError]   = useState('')
+  const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
   const { setCurrentUser } = useBuildFlowStore()
   const router = useRouter()
@@ -27,20 +28,33 @@ export default function SignUpPage() {
     setLoading(true)
     const result = await registerUser(form.name, form.email, form.password)
     if (result.ok && result.user) {
-      setCurrentUser(result.user)
-      router.push('/dashboard')
+      // Supabase may require email confirmation — if so, show message instead of redirect
+      if (result.user.id) {
+        await setCurrentUser(result.user)
+        router.push('/dashboard')
+      } else {
+        setSuccess(true)
+      }
     } else {
       setError(result.error ?? 'Registration failed')
       setLoading(false)
     }
   }
 
-  function handleGoogleSuccess(profile: { id: string; name: string; email: string; avatar?: string }) {
-    const result = loginWithOAuth('google', profile)
-    if (result.ok && result.user) {
-      setCurrentUser(result.user)
-      router.push('/dashboard')
-    }
+  if (success) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#1A2B4A] px-5">
+        <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-16 w-16 rounded-2xl shadow-xl mb-6" />
+        <div className="card w-full p-6 text-center">
+          <div className="text-4xl mb-3">✉️</div>
+          <h2 className="text-xl font-bold text-[#1A2B4A] mb-2">Check your email</h2>
+          <p className="text-gray-500 text-sm mb-4">
+            We sent a confirmation link to <strong>{form.email}</strong>. Click it to activate your account.
+          </p>
+          <Link href="/login" className="text-blue-600 font-semibold text-sm">Back to Sign In</Link>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -69,7 +83,6 @@ export default function SignUpPage() {
           <p className="text-gray-500 text-sm mb-5">Start managing your construction projects</p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
-            {/* Name */}
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
                 <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -78,7 +91,6 @@ export default function SignUpPage() {
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400" />
             </div>
 
-            {/* Email */}
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
                 <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
@@ -87,7 +99,6 @@ export default function SignUpPage() {
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400" />
             </div>
 
-            {/* Password */}
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
                 <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -96,7 +107,6 @@ export default function SignUpPage() {
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400" />
             </div>
 
-            {/* Confirm */}
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
                 <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -122,8 +132,10 @@ export default function SignUpPage() {
             <div className="flex-1 h-px bg-gray-200"/><span className="text-gray-400 text-xs">or sign up with</span><div className="flex-1 h-px bg-gray-200"/>
           </div>
 
-          <GitHubSignInButton label="Sign up with GitHub" />
-          <GoogleSignInButton onSuccess={handleGoogleSuccess} label="Sign up with Google" />
+          <div className="flex flex-col gap-2.5">
+            <GitHubSignInButton label="Sign up with GitHub" />
+            <GoogleSignInButton label="Sign up with Google" />
+          </div>
 
           <p className="text-center text-gray-500 text-sm mt-5">
             Already have an account?{' '}

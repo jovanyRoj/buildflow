@@ -1,20 +1,13 @@
 'use client'
+import { signInWithOAuth } from '@/lib/auth'
 
 interface Props {
   label?: string
 }
 
-// Public client ID — safe to hardcode in client bundle
-const CLIENT_ID = 'Ov23liGiEnJnXfpCyT8V'
-
 export default function GitHubSignInButton({ label = 'Sign in with GitHub' }: Props) {
-  function handleClick() {
-    const params = new URLSearchParams({
-      client_id: CLIENT_ID,
-      redirect_uri: `${window.location.origin}/api/auth/callback/github`,
-      scope: 'user:email',
-    })
-    window.location.href = `https://github.com/login/oauth/authorize?${params}`
+  async function handleClick() {
+    await signInWithOAuth('github')
   }
 
   return (

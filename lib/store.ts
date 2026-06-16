@@ -44,7 +44,7 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
   loading: true,
 
   initSession: async () => {
-    const session = getSession()
+    const session = await getSession()
     if (!session) { set({ loading: false }); return }
     set({ currentUser: session, loading: true })
     // Ensure user exists in DB
@@ -61,13 +61,13 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
       const projects = await loadProjects(user.id)
       set({ currentUser: user, projects, loading: false })
     } else {
-      clearSession()
+      void clearSession()
       set({ currentUser: null, projects: [], loading: false })
     }
   },
 
   logout: () => {
-    clearSession()
+    clearSession() // async, fire-and-forget is fine for signOut
     set({ currentUser: null, projects: [] })
   },
 

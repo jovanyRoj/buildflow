@@ -1,23 +1,14 @@
 'use client'
+import { signInWithOAuth } from '@/lib/auth'
 
 interface Props {
-  onSuccess?: (profile: { id: string; name: string; email: string; avatar?: string }) => void
   label?: string
+  onSuccess?: (profile: { id: string; name: string; email: string; avatar?: string }) => void
 }
 
-// Public client ID — safe to hardcode in client bundle
-const GOOGLE_CLIENT_ID = '357842698151-1a24b0nmao69ronb2jjsp60celar71v8.apps.googleusercontent.com'
-
 export default function GoogleSignInButton({ label = 'Sign in with Google' }: Props) {
-  function handleClick() {
-    const params = new URLSearchParams({
-      client_id:     GOOGLE_CLIENT_ID,
-      redirect_uri:  `${window.location.origin}/api/auth/callback/google`,
-      response_type: 'code',
-      scope:         'openid email profile',
-      access_type:   'online',
-    })
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`
+  async function handleClick() {
+    await signInWithOAuth('google')
   }
 
   return (

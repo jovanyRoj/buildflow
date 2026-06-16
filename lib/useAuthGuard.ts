@@ -10,18 +10,17 @@ export function useAuthGuard() {
   const router = useRouter()
 
   useEffect(() => {
-    // On first render, restore session from localStorage
-    if (!currentUser) {
-      const session = getSession()
+    if (currentUser) {
+      setReady(true)
+      return
+    }
+    getSession().then((session) => {
       if (session) {
-        // Await setCurrentUser so projects load before marking ready
         setCurrentUser(session).then(() => setReady(true))
       } else {
         router.replace('/login')
       }
-    } else {
-      setReady(true)
-    }
+    })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { ready, user: currentUser }
