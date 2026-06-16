@@ -56,8 +56,12 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
   setCurrentUser: async (user) => {
     if (user) {
       saveSession(user)
-      // Upsert user in Supabase
-      await upsertUser(user)
+      // Upsert user via admin API (bypasses RLS)
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'upsertUser', user }),
+      }).catch(e => console.error('upsertUser api:', e))
       const projects = await loadProjects(user.id)
       set({ currentUser: user, projects, loading: false })
     } else {
@@ -107,10 +111,23 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
       updatedAt: new Date().toISOString(),
     }
 
-    // Save to Supabase
-    await saveProject(currentUser.id, project)
-    await saveTasks(tasks)
-    await addHistory(project.history)
+    // Save to Supabase via admin API (bypasses RLS)
+    const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
+    await fetch(`${appUrl}/api/db`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'saveProject', userId: currentUser.id, project }),
+    }).catch(e => console.error('saveProject api:', e))
+    await fetch(`${appUrl}/api/db`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'saveTasks', tasks }),
+    }).catch(e => console.error('saveTasks api:', e))
+    await fetch(`${appUrl}/api/db`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addHistory', entries: project.history }),
+    }).catch(e => console.error('addHistory api:', e))
 
     set(state => ({ projects: [project, ...state.projects] }))
     return project

@@ -27,7 +27,8 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
       <div
-        className="w-full max-w-[480px] bg-white rounded-t-3xl p-6 pb-10 shadow-2xl"
+        className="w-full max-w-[480px] bg-white rounded-t-3xl shadow-2xl overflow-y-auto"
+        style={{ maxHeight: '92dvh', padding: '1.5rem 1.5rem 2.5rem' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5"/>

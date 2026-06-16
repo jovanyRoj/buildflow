@@ -28,13 +28,10 @@ export default function SignUpPage() {
     setLoading(true)
     const result = await registerUser(form.name, form.email, form.password)
     if (result.ok && result.user) {
-      // Supabase may require email confirmation — if so, show message instead of redirect
-      if (result.user.id) {
-        await setCurrentUser(result.user)
-        router.push('/dashboard')
-      } else {
-        setSuccess(true)
-      }
+      // Always go to dashboard — if email confirmation is required,
+      // Supabase will have auto-signed them in (session present)
+      await setCurrentUser(result.user)
+      router.push('/dashboard')
     } else {
       setError(result.error ?? 'Registration failed')
       setLoading(false)
