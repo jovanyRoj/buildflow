@@ -41,14 +41,17 @@ export async function POST(req: NextRequest) {
       const { tasks } = body
       if (!tasks?.length) return NextResponse.json({ ok: true })
       const rows = tasks.map((t: any) => ({
-        id: t.id, project_id: t.projectId, name: t.name,
-        status: t.status, start_date: t.startDate, end_date: t.endDate,
+        id: t.id,
+        project_id: t.projectId,
+        name: t.name,
+        status: t.status,
+        start_date: t.startDate,
+        end_date: t.endDate,
         duration_days: t.durationDays ?? 0,
         assigned_to: t.assignedTo ?? null,
         subcontractor_phone: t.subcontractorPhone ?? null,
         notes: t.notes ?? '',
         task_order: t.order ?? 0,
-        phase: t.phase ?? '',
         inspection_status: t.inspectionStatus ?? null,
         inspection_notes: t.inspectionNotes ?? null,
         portal_token: t.portalToken ?? null,

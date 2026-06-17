@@ -35,18 +35,36 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     const digits = phone.replace(/\D/g, '')
     const e164 = digits.length === 10 ? `+1${digits}` : `+${digits}`
 
-    const subId = uuidv4()
-    const { error: subError } = await supabaseAdmin
+    // Check if subcontractor already registered for this project with same phone
+    const { data: existing } = await supabaseAdmin
       .from('bf_subcontractors')
-      .upsert({
-        id: subId, project_id: projectId,
-        name: contactName, company, phone: e164,
-        trade, email: email ?? '', notes: '',
-      }, { onConflict: 'phone,project_id' })
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('phone', e164)
+      .maybeSingle()
 
-    if (subError) {
-      console.error('upsert subcontractor:', subError)
-      return NextResponse.json({ error: 'Failed to save' }, { status: 500 })
+    let subId: string
+    if (existing) {
+      // Update existing registration
+      subId = existing.id
+      await supabaseAdmin
+        .from('bf_subcontractors')
+        .update({ name: contactName, company, trade, email: email ?? '', })
+        .eq('id', subId)
+    } else {
+      // New registration
+      subId = uuidv4()
+      const { error: insertError } = await supabaseAdmin
+        .from('bf_subcontractors')
+        .insert({
+          id: subId, project_id: projectId,
+          name: contactName, company, phone: e164,
+          trade, email: email ?? '', notes: '',
+        })
+      if (insertError) {
+        console.error('insert subcontractor:', insertError)
+        return NextResponse.json({ error: 'Failed to save' }, { status: 500 })
+      }
     }
 
     // Auto-assign matching tasks
@@ -68,10 +86,12 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         .from('bf_tasks').select('id, name')
         .eq('project_id', projectId).in('name', taskNames)
       if (tasks?.length) {
-        await supabaseAdmin.from('bf_tasks').upsert(
-          tasks.map(t => ({ id: t.id, assigned_to: company, subcontractor_phone: e164 })),
-          { onConflict: 'id' }
-        )
+        for (const t of tasks) {
+          await supabaseAdmin
+            .from('bf_tasks')
+            .update({ assigned_to: company, subcontractor_phone: e164 })
+            .eq('id', t.id)
+        }
       }
     }
 
