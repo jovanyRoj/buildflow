@@ -14,14 +14,22 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
     startDate: format(new Date(), 'yyyy-MM-dd'),
   })
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    await new Promise(r => setTimeout(r, 400))
-    const project = await createProject(form)
-    onClose()
-    router.push(`/projects/${project.id}`)
+    setError('')
+    try {
+      await new Promise(r => setTimeout(r, 300))
+      const project = await createProject(form)
+      onClose()
+      router.push(`/projects/${project.id}`)
+    } catch (err: any) {
+      console.error('createProject error:', err)
+      setError(err?.message ?? 'Error creating project. Please try again.')
+      setSaving(false)
+    }
   }
 
   return (
@@ -81,6 +89,10 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
           <p className="text-xs text-gray-400 bg-blue-50 rounded-xl p-3 text-center">
             22 tasks will be auto-generated with default durations and dependencies.
           </p>
+
+          {error && (
+            <p className="text-xs text-red-500 bg-red-50 rounded-xl px-3 py-2 text-center">{error}</p>
+          )}
 
           <button
             type="submit"
