@@ -78,7 +78,7 @@ export async function POST(
     // Find task by portalToken
     const { data: taskRow } = await supabaseAdmin
       .from('bf_tasks')
-      .select('id, project_id, status as prev_status')
+      .select('id, project_id, status')
       .eq('portal_token', token)
       .maybeSingle()
 
@@ -101,7 +101,7 @@ export async function POST(
       task_id: taskRow.id,
       type: 'statusChange',
       description: `"${taskName}" updated by subcontractor → ${status}`,
-      previous_value: taskRow.prev_status ?? null,
+      previous_value: taskRow.status ?? null,
       new_value: status,
       created_at: new Date().toISOString(),
     })
