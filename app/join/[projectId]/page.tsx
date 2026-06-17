@@ -9,10 +9,12 @@ interface ProjectInfo { id: string; name: string; address: string }
 
 export default function JoinProjectPage() {
   const { projectId } = useParams() as { projectId: string }
-  const [project, setProject]   = useState<ProjectInfo | null>(null)
-  const [step, setStep]         = useState<Step>('loading')
-  const [form, setForm]         = useState({ company: '', contactName: '', phone: '', email: '', trade: '' })
-  const [error, setError]       = useState('')
+  const [project, setProject] = useState<ProjectInfo | null>(null)
+  const [step, setStep]       = useState<Step>('loading')
+  const [form, setForm]       = useState({ company: '', contactName: '', phone: '', email: '', trade: '' })
+  const [error, setError]     = useState('')
+  const [subId, setSubId]     = useState('')
+  const [copied, setCopied]   = useState(false)
 
   useEffect(() => {
     fetch(`/api/join/${projectId}`)
@@ -40,12 +42,25 @@ export default function JoinProjectPage() {
       setError(data.error ?? 'Registration failed. Try again.')
       setStep('form')
     } else {
+      setSubId(data.subId ?? '')
       setStep('success')
     }
   }
 
   function set(field: string, value: string) {
     setForm(f => ({ ...f, [field]: value }))
+  }
+
+  const portalUrl = subId
+    ? `${typeof window !== 'undefined' ? window.location.origin : 'https://buildflow-eight-sigma.vercel.app'}/portal/${projectId}/${subId}`
+    : ''
+
+  function copyPortalLink() {
+    if (!portalUrl) return
+    navigator.clipboard?.writeText(portalUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   if (step === 'loading' || step === 'saving') return (
@@ -65,27 +80,59 @@ export default function JoinProjectPage() {
   )
 
   if (step === 'success') return (
-    <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center px-6 text-center gap-5">
-      <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center text-4xl shadow-xl">✅</div>
-      <div>
-        <h2 className="text-2xl font-bold text-white">You're registered!</h2>
-        <p className="text-white/70 mt-2 text-sm">Welcome to <strong className="text-white">{project?.name}</strong></p>
-      </div>
-      <div className="card w-full p-5 text-left">
-        <p className="text-xs font-semibold text-gray-500 mb-3">YOUR REGISTRATION</p>
-        <div className="flex flex-col gap-2 text-sm">
-          <Row label="Company"  value={form.company}/>
-          <Row label="Contact"  value={form.contactName}/>
-          <Row label="Phone"    value={form.phone}/>
-          {form.email && <Row label="Email" value={form.email}/>}
-          <Row label="Trade"    value={TRADES.find(t => t.value === form.trade)?.label ?? form.trade}/>
-          <Row label="Project"  value={project?.name ?? ''}/>
+    <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-start justify-start px-5 pt-14 pb-10 gap-5 overflow-y-auto">
+      <div className="w-full flex flex-col items-center text-center gap-3 mb-2">
+        <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center text-4xl shadow-xl">✅</div>
+        <div>
+          <h2 className="text-2xl font-bold text-white">You&apos;re registered!</h2>
+          <p className="text-white/70 mt-1 text-sm">Welcome to <strong className="text-white">{project?.name}</strong></p>
         </div>
       </div>
-      <p className="text-white/50 text-xs">
-        Sofia will text you at {form.phone} when your work phase begins.<br/>No app needed.
+
+      {/* Registration card */}
+      <div className="card w-full p-5">
+        <p className="text-xs font-semibold text-gray-500 mb-3">YOUR REGISTRATION</p>
+        <div className="flex flex-col gap-2 text-sm">
+          <Row label="Company" value={form.company}/>
+          <Row label="Contact" value={form.contactName}/>
+          <Row label="Phone"   value={form.phone}/>
+          {form.email && <Row label="Email" value={form.email}/>}
+          <Row label="Trade"   value={TRADES.find(t => t.value === form.trade)?.label ?? form.trade}/>
+          <Row label="Project" value={project?.name ?? ''}/>
+        </div>
+      </div>
+
+      {/* Portal link */}
+      {portalUrl && (
+        <div className="card w-full p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">🏗️</span>
+            <p className="text-sm font-bold text-[#1A2B4A]">Your Project Portal</p>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Bookmark this link to view project info, your assigned tasks, and all blueprint files your builder uploads.
+          </p>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5 text-xs text-blue-700 font-mono break-all mb-3">
+            {portalUrl}
+          </div>
+          <button onClick={copyPortalLink}
+            className="w-full py-3 rounded-xl bg-[#2E7CF6] text-white text-sm font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition">
+            {copied
+              ? <><svg width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Link Copied!</>
+              : <><svg width="16" height="16" fill="none" stroke="white" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy My Portal Link</>
+            }
+          </button>
+          <a href={portalUrl}
+            className="mt-2 w-full py-2.5 rounded-xl border border-blue-200 text-blue-600 text-sm font-semibold flex items-center justify-center gap-2">
+            Open Project Portal →
+          </a>
+        </div>
+      )}
+
+      <p className="text-white/40 text-xs text-center w-full">
+        Sofia will text you at {form.phone} when your work phase begins.
       </p>
-      <img src="/BuildFlowLogo.png" alt="" className="h-8 w-8 rounded-xl opacity-40 mt-2"/>
+      <img src="/BuildFlowLogo.png" alt="" className="h-8 w-8 rounded-xl opacity-30 mx-auto"/>
     </div>
   )
 
@@ -106,7 +153,7 @@ export default function JoinProjectPage() {
       <div className="px-4 py-5 flex flex-col gap-4">
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-800">
           <p className="font-semibold text-blue-700 mb-1">👷 Register your company</p>
-          You'll receive SMS notifications when your work phase begins and when you're needed on site.
+          You&apos;ll receive SMS notifications and get access to blueprints &amp; project files.
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
