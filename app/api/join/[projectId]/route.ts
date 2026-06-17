@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { v4 as uuidv4 } from 'uuid'
 
 type Ctx = { params: Promise<{ projectId: string }> }

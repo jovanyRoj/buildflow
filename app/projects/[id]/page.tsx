@@ -37,6 +37,7 @@ export default function ProjectDetailPage() {
   const active    = project.tasks.filter(t => t.status === 'active').length
   const delayed   = project.tasks.filter(t => t.status === 'delayed').length
   const completed = project.tasks.filter(t => t.status === 'completed').length
+  const mapsUrl   = `https://maps.google.com/?q=${encodeURIComponent(project.address)}`
 
   return (
     <div className="pb-24">
@@ -65,10 +66,16 @@ export default function ProjectDetailPage() {
 
       <div className="bg-[#1A2B4A] px-5 py-5">
         <div className="flex items-start justify-between mb-3">
-          <p className="text-white/60 text-xs flex items-center gap-1">
+          {/* Address — tappable Google Maps link */}
+          <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-white/60 text-xs flex items-center gap-1 underline underline-offset-2 hover:text-white/80 transition"
+          >
             <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
             {project.address}
-          </p>
+          </a>
           <ProjectStatusBadge status={project.status} />
         </div>
         <div className="mb-1 flex items-center justify-between">
@@ -83,6 +90,19 @@ export default function ProjectDetailPage() {
           <span>Start: {format(parseISO(project.startDate), 'MMM d, yyyy')}</span>
           <span>Est. Close: {format(parseISO(project.estimatedEndDate), 'MMM d, yyyy')}</span>
         </div>
+      </div>
+
+      {/* Sofia AI banner */}
+      <div className="mx-4 mt-3 px-3 py-2.5 bg-indigo-50 rounded-xl flex items-center gap-2.5">
+        <span className="text-lg">🤖</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-indigo-700">Sofia AI is active</p>
+          <p className="text-xs text-indigo-500 truncate">Monitoring subcontractor SMS updates 24/7</p>
+        </div>
+        <Link href={`/projects/${project.id}/contractors`}
+          className="text-xs text-indigo-600 font-semibold whitespace-nowrap">
+          Manage →
+        </Link>
       </div>
 
       <div className="px-4 py-4 grid grid-cols-4 gap-2">
@@ -124,39 +144,20 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {project.history.length > 0 && (
-        <div className="px-4 mt-5">
-          <h2 className="text-sm font-bold text-[#1A2B4A] mb-3">Recent History</h2>
-          <div className="card divide-y divide-gray-50">
-            {[...project.history].reverse().slice(0, 8).map(h => (
-              <div key={h.id} className="px-4 py-3">
-                <p className="text-xs text-gray-700">{h.description}</p>
-                {h.previousValue && h.newValue && (
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    <span className="line-through">{h.previousValue}</span><span className="mx-1">→</span>
-                    <span className="text-blue-600">{h.newValue}</span>
-                  </p>
-                )}
-                <p className="text-xs text-gray-300 mt-0.5">{format(parseISO(h.timestamp), 'MMM d, h:mm a')}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {showDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6" onClick={() => setShowDelete(false)}>
-          <div className="card w-full p-6" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-[#1A2B4A] mb-2">Delete Project?</h3>
-            <p className="text-sm text-gray-500 mb-5">This action cannot be undone.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Delete Project?</h3>
+            <p className="text-sm text-gray-500 mb-5">This will permanently delete <strong>{project.name}</strong> and all its tasks.</p>
             <div className="flex gap-3">
-              <button className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600" onClick={() => setShowDelete(false)}>Cancel</button>
-              <button className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold"
-                onClick={() => { deleteProject(project.id); router.push('/projects') }}>Delete</button>
+              <button onClick={() => setShowDelete(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600">Cancel</button>
+              <button onClick={() => { deleteProject(project.id); router.replace('/projects') }}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
             </div>
           </div>
         </div>
       )}
+
       <BottomNav />
     </div>
   )

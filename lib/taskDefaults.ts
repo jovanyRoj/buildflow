@@ -64,8 +64,9 @@ export function generateTasks(projectId: string, projectStartDate: string): impo
     const taskEnd = addDays(taskStart, tmpl.durationDays - 1)
     orderToEndDate[tmpl.order] = taskEnd
 
-    // Generate a portal token for subcontractor access
-    const portalToken = Buffer.from(`${projectId}:${id}:${Date.now()}`).toString('base64url')
+    // Generate a portal token — browser-compatible base64url (no Buffer polyfill needed)
+    const raw = `${projectId}:${id}:${Date.now()}`
+    const portalToken = btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 
     tasks.push({
       id,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 // POST /api/db — server-side writes using admin client (bypasses RLS)
 export async function POST(req: NextRequest) {
