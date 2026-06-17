@@ -94,7 +94,24 @@ export default function ProjectDetailPage() {
 
       {/* Sofia AI banner */}
       <div className="mx-4 mt-3 px-3 py-2.5 bg-indigo-50 rounded-xl flex items-center gap-2.5">
-        <span className="text-lg">🤖</span>
+        {/* EVA icon — WALL-E */}
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="14" cy="15" rx="11" ry="12" fill="#E8EDF5" stroke="#CBD5E1" strokeWidth="1"/>
+          <ellipse cx="14" cy="13" rx="8" ry="9" fill="white" stroke="#CBD5E1" strokeWidth="0.8"/>
+          {/* Eyes */}
+          <ellipse cx="10.5" cy="11" rx="2.5" ry="2" fill="#3B82F6"/>
+          <ellipse cx="17.5" cy="11" rx="2.5" ry="2" fill="#3B82F6"/>
+          <ellipse cx="10.5" cy="11" rx="1.2" ry="1" fill="#1D4ED8"/>
+          <ellipse cx="17.5" cy="11" rx="1.2" ry="1" fill="#1D4ED8"/>
+          <circle cx="11.1" cy="10.4" r="0.5" fill="white"/>
+          <circle cx="18.1" cy="10.4" r="0.5" fill="white"/>
+          {/* Smile */}
+          <path d="M11 15.5 Q14 17.5 17 15.5" stroke="#94A3B8" strokeWidth="0.8" fill="none" strokeLinecap="round"/>
+          {/* Neck */}
+          <rect x="12" y="23" width="4" height="2.5" rx="1" fill="#CBD5E1"/>
+          {/* Glow ring */}
+          <circle cx="14" cy="13" r="9.5" stroke="#818CF8" strokeWidth="0.5" strokeDasharray="2 2" opacity="0.5"/>
+        </svg>
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-indigo-700">Sofia AI is active</p>
           <p className="text-xs text-indigo-500 truncate">Monitoring subcontractor SMS updates 24/7</p>

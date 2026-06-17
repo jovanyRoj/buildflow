@@ -51,6 +51,9 @@ export async function POST(req: NextRequest) {
         phase: t.phase ?? '',
         inspection_status: t.inspectionStatus ?? null,
         inspection_notes: t.inspectionNotes ?? null,
+        portal_token: t.portalToken ?? null,
+        delay_days: t.delayDays ?? 0,
+        updated_at: new Date().toISOString(),
       }))
       const { error } = await supabaseAdmin.from('bf_tasks').upsert(rows, { onConflict: 'id' })
       if (error) console.error('[db/saveTasks]', error)
