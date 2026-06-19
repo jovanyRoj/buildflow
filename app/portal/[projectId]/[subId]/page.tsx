@@ -22,6 +22,15 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   completed:   { label: 'Completed',      color: 'bg-green-100 text-green-700' },
 }
 
+// Sub-facing status options
+const SUB_STATUS_OPTIONS = [
+  { value: 'in_progress', label: '🟢 On Track',       color: 'border-green-400 bg-green-50 text-green-700' },
+  { value: 'completed',   label: '✅ Completed',       color: 'border-emerald-400 bg-emerald-50 text-emerald-700' },
+  { value: 'pending',     label: '⏳ Pending',         color: 'border-gray-300 bg-gray-50 text-gray-600' },
+  { value: 'delayed',     label: '🔴 Delayed',         color: 'border-red-400 bg-red-50 text-red-700' },
+  { value: 'fail_inspection', label: '❌ Fail Inspection', color: 'border-red-500 bg-red-100 text-red-800' },
+]
+
 const MATERIALS_OPTIONS = [
   { value: 'not_ordered', label: '📦 Not yet ordered',     color: 'border-red-200 bg-red-50 text-red-700' },
   { value: 'ordered',     label: '🚚 Ordered / En route',  color: 'border-amber-200 bg-amber-50 text-amber-700' },
@@ -51,6 +60,14 @@ interface CommitForm {
   sub_crew_size: string; sub_materials_status: string; sub_confirmed: boolean
 }
 
+interface SofiaChat {
+  message: string
+  sending: boolean
+  reply: string | null
+  downstreamNotified: number
+  downstreamAction: string
+}
+
 export default function GuestPortal() {
   const { projectId, subId } = useParams() as { projectId: string; subId: string }
   const [data, setData]       = useState<any>(null)
@@ -58,12 +75,20 @@ export default function GuestPortal() {
   const [error, setError]     = useState('')
   const [tab, setTab]         = useState<'info' | 'tasks' | 'files'>('info')
 
-  // Per-task editing state
-  const [editTask, setEditTask]   = useState<any | null>(null)    // task currently open in modal
+  // Per-task commitment modal
+  const [editTask, setEditTask]   = useState<any | null>(null)
   const [form, setForm]           = useState<CommitForm | null>(null)
   const [saving, setSaving]       = useState(false)
   const [saved, setSaved]         = useState<string | null>(null)
   const [conflicts, setConflicts] = useState<Record<string, string[]>>({})
+
+  // Per-task status update
+  const [statusSaving, setStatusSaving] = useState<string | null>(null)
+
+  // Per-task Sofia chat state
+  const [sofiaChats, setSofiaChats] = useState<Record<string, SofiaChat>>({})
+  // Track which task has Sofia panel open
+  const [sofiaOpen, setSofiaOpen] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`/api/portal/${projectId}/${subId}`)
@@ -105,16 +130,81 @@ export default function GuestPortal() {
       const json = await res.json()
       if (json.conflicts?.length) setConflicts(c => ({ ...c, [editTask.id]: json.conflicts }))
       else setConflicts(c => ({ ...c, [editTask.id]: [] }))
-      // Update local task data
       setData((d: any) => ({
         ...d,
-        tasks: d.tasks.map((t: any) => t.id === editTask.id ? { ...t, ...form, sub_crew_size: form.sub_crew_size ? parseInt(form.sub_crew_size) : null } : t),
+        tasks: d.tasks.map((t: any) => t.id === editTask.id
+          ? { ...t, ...form, sub_crew_size: form.sub_crew_size ? parseInt(form.sub_crew_size) : null }
+          : t),
       }))
       setSaved(editTask.id)
       setTimeout(() => setSaved(null), 3000)
       setEditTask(null)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleStatusChange(taskId: string, newStatus: string) {
+    setStatusSaving(taskId)
+    try {
+      const isFailInspection = newStatus === 'fail_inspection'
+      const actualStatus = isFailInspection ? 'delayed' : newStatus
+      await fetch(`/api/portal/${projectId}/${subId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId,
+          status: actualStatus,
+          ...(isFailInspection ? { inspection_status: 'failed' } : {}),
+        }),
+      })
+      setData((d: any) => ({
+        ...d,
+        tasks: d.tasks.map((t: any) => t.id === taskId
+          ? { ...t, status: actualStatus, ...(isFailInspection ? { inspection_status: 'failed' } : {}) }
+          : t),
+      }))
+    } finally {
+      setStatusSaving(null)
+    }
+  }
+
+  function getSofiaChat(taskId: string): SofiaChat {
+    return sofiaChats[taskId] ?? { message: '', sending: false, reply: null, downstreamNotified: 0, downstreamAction: 'none' }
+  }
+
+  function setSofiaChat(taskId: string, updates: Partial<SofiaChat>) {
+    setSofiaChats(s => ({ ...s, [taskId]: { ...getSofiaChat(taskId), ...updates } }))
+  }
+
+  async function sendToSofia(taskId: string) {
+    const chat = getSofiaChat(taskId)
+    if (!chat.message.trim() || chat.sending) return
+    setSofiaChat(taskId, { sending: true, reply: null })
+    try {
+      const res = await fetch(`/api/portal/${projectId}/${subId}/sofia`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, message: chat.message }),
+      })
+      const json = await res.json()
+      setSofiaChat(taskId, {
+        sending: false,
+        reply: json.sofiaReply ?? 'Message received.',
+        downstreamNotified: json.downstreamNotified ?? 0,
+        downstreamAction: json.downstreamAction ?? 'none',
+      })
+      // Update task in local state if Sofia changed dates
+      if (json.newDates?.sub_start_date || json.newDates?.sub_end_date) {
+        setData((d: any) => ({
+          ...d,
+          tasks: d.tasks.map((t: any) => t.id === taskId
+            ? { ...t, ...json.newDates }
+            : t),
+        }))
+      }
+    } catch {
+      setSofiaChat(taskId, { sending: false, reply: 'Could not reach Sofia. Try again.' })
     }
   }
 
@@ -140,6 +230,7 @@ export default function GuestPortal() {
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] max-w-[480px] mx-auto pb-10">
+
       {/* Header */}
       <div className="bg-[#1A2B4A] px-5 pt-12 pb-5">
         <div className="flex items-center gap-2 mb-4">
@@ -196,6 +287,46 @@ export default function GuestPortal() {
                 <Row label="Est. End" value={project.estimated_end_date ? format(parseISO(project.estimated_end_date), 'MMM d, yyyy') : '—'}/>
               </div>
             </div>
+
+            {/* My Task Dates — Project Management section */}
+            {tasks.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm p-4">
+                <p className="text-xs font-semibold text-gray-500 mb-3">📅 MY TASK SCHEDULE</p>
+                <div className="flex flex-col gap-3">
+                  {tasks.map((task: any) => (
+                    <div key={task.id} className="border border-gray-100 rounded-xl p-3">
+                      <p className="text-xs font-bold text-[#1A2B4A] mb-2">{task.name}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-gray-50 rounded-lg p-2 text-center">
+                          <p className="text-gray-400 text-xs mb-0.5">My Start</p>
+                          <p className="font-bold text-sm text-[#1A2B4A]">
+                            {task.sub_start_date ? format(parseISO(task.sub_start_date), 'MMM d') : task.start_date ? format(parseISO(task.start_date), 'MMM d') : '—'}
+                          </p>
+                          {task.sub_start_date && task.start_date && task.sub_start_date !== task.start_date && (
+                            <p className="text-xs text-amber-500">↑ modified</p>
+                          )}
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-2 text-center">
+                          <p className="text-gray-400 text-xs mb-0.5">My End</p>
+                          <p className="font-bold text-sm text-[#1A2B4A]">
+                            {task.sub_end_date ? format(parseISO(task.sub_end_date), 'MMM d') : task.end_date ? format(parseISO(task.end_date), 'MMM d') : '—'}
+                          </p>
+                          {task.sub_end_date && task.end_date && task.sub_end_date !== task.end_date && (
+                            <p className="text-xs text-amber-500">↑ modified</p>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => { setTab('tasks'); setTimeout(() => openCommit(task), 100) }}
+                        className="mt-2 w-full py-1.5 rounded-lg bg-[#1A2B4A]/5 text-[#1A2B4A] text-xs font-semibold">
+                        ✏️ Edit dates
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-2xl shadow-sm p-4">
               <p className="text-xs font-semibold text-gray-500 mb-3">YOUR REGISTRATION</p>
               <div className="flex flex-col gap-2.5 text-sm">
@@ -205,13 +336,14 @@ export default function GuestPortal() {
                 {sub.phone && <Row label="Phone" value={sub.phone}/>}
               </div>
             </div>
+
             <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex gap-3">
               <span className="text-2xl">🤖</span>
               <div>
                 <p className="text-xs font-bold text-blue-700 mb-1">Sofia AI is tracking your schedule</p>
                 <p className="text-xs text-blue-600 leading-relaxed">
-                  Go to <strong>Tasks</strong> to set your commitment — dates, crew, materials.
-                  Any change you make alerts the builder automatically.
+                  Go to <strong>Tasks</strong> to update your status, set dates, or chat with Sofia about any delays.
+                  Any change alerts the builder automatically.
                 </p>
               </div>
             </div>
@@ -229,9 +361,8 @@ export default function GuestPortal() {
             <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 flex gap-2.5 items-start">
               <span className="text-lg mt-0.5">🤖</span>
               <p className="text-xs text-amber-700 leading-relaxed">
-                <strong>Your commitment matters.</strong> Set your actual start/end dates below.
-                If something changes (material delay, crew issue), update your dates and add a note —
-                Sofia will notify your builder and check for schedule conflicts automatically.
+                <strong>Your commitment matters.</strong> Update your status, set dates, and chat with Sofia
+                if anything changes — she'll notify your builder and adjust the schedule automatically.
               </p>
             </div>
 
@@ -242,6 +373,13 @@ export default function GuestPortal() {
               const startLabel = daysLabel(task.start_date)
               const hasCommitment = task.sub_start_date || task.sub_end_date || task.sub_confirmed
               const taskConflicts = conflicts[task.id] ?? []
+              const chat = getSofiaChat(task.id)
+              const isSofiaOpen = sofiaOpen === task.id
+              // Find which sub status option matches current status
+              const currentSubStatus = task.inspection_status === 'failed'
+                ? 'fail_inspection'
+                : task.status
+
               return (
                 <div key={task.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
                   <div className="px-4 pt-4 pb-3">
@@ -249,6 +387,27 @@ export default function GuestPortal() {
                       <p className="text-sm font-bold text-[#1A2B4A]">{task.name}</p>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${cfg.color}`}>{cfg.label}</span>
                     </div>
+
+                    {/* ── Status Selector ── */}
+                    <div className="mb-3">
+                      <p className="text-xs font-semibold text-gray-400 mb-1.5">UPDATE STATUS</p>
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                        {SUB_STATUS_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            disabled={statusSaving === task.id}
+                            onClick={() => handleStatusChange(task.id, opt.value)}
+                            className={`py-2 px-2 rounded-xl border-2 text-xs font-semibold transition active:scale-[0.97] ${
+                              currentSubStatus === opt.value
+                                ? opt.color + ' border-current'
+                                : 'border-gray-100 text-gray-400 hover:border-gray-200'
+                            } ${statusSaving === task.id ? 'opacity-50' : ''}`}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     {/* Builder plan */}
                     <p className="text-xs font-semibold text-gray-400 mb-1.5">BUILDER&apos;S PLAN</p>
                     <div className="grid grid-cols-2 gap-2 mb-2">
@@ -265,6 +424,7 @@ export default function GuestPortal() {
                         )}
                       </div>
                     </div>
+
                     {task.notes && (
                       <div className="bg-amber-50 rounded-xl px-3 py-2 mb-2">
                         <p className="text-xs text-amber-700 font-semibold mb-0.5">📝 Builder note</p>
@@ -297,12 +457,6 @@ export default function GuestPortal() {
 
                     {/* Action buttons */}
                     <div className="flex gap-2 mt-2">
-                      {task.portal_token && (
-                        <a href={`/sub/${task.portal_token}`}
-                          className="flex-1 py-2.5 rounded-xl border border-blue-200 text-blue-600 text-xs font-bold flex items-center justify-center gap-1">
-                          📤 Update Status
-                        </a>
-                      )}
                       <button onClick={() => openCommit(task)}
                         className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition active:scale-[0.97] ${
                           saved === task.id ? 'bg-green-500 text-white' :
@@ -310,7 +464,64 @@ export default function GuestPortal() {
                         }`}>
                         {saved === task.id ? '✅ Saved!' : hasCommitment ? '✏️ Edit Commitment' : '📅 Set My Schedule'}
                       </button>
+                      <button
+                        onClick={() => setSofiaOpen(isSofiaOpen ? null : task.id)}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-bold border-2 transition flex items-center gap-1 ${
+                          isSofiaOpen
+                            ? 'border-purple-400 bg-purple-50 text-purple-700'
+                            : 'border-gray-200 text-gray-500 hover:border-purple-300'
+                        }`}>
+                        🤖 Sofia
+                      </button>
                     </div>
+
+                    {/* ── Sofia Chat Panel ── */}
+                    {isSofiaOpen && (
+                      <div className="mt-3 border border-purple-100 rounded-2xl overflow-hidden">
+                        <div className="bg-purple-50 px-3 py-2 flex items-center gap-2">
+                          <span className="text-base">🤖</span>
+                          <div>
+                            <p className="text-xs font-bold text-purple-700">Chat with Sofia</p>
+                            <p className="text-xs text-purple-500">Explain any delay or issue — Sofia will update the schedule and notify affected subs.</p>
+                          </div>
+                        </div>
+
+                        {/* Sofia reply bubble */}
+                        {chat.reply && (
+                          <div className="px-3 py-2 bg-white">
+                            <div className="bg-purple-50 rounded-xl px-3 py-2.5">
+                              <p className="text-xs font-bold text-purple-700 mb-1">🤖 Sofia says:</p>
+                              <p className="text-xs text-purple-800 leading-relaxed">{chat.reply}</p>
+                              {chat.downstreamNotified > 0 && (
+                                <p className="text-xs text-purple-600 mt-1.5 font-semibold">
+                                  {chat.downstreamAction === 'postpone'
+                                    ? `🔁 Sofia shifted ${chat.downstreamNotified} downstream task(s) and notified subs.`
+                                    : `🔀 Sofia flagged ${chat.downstreamNotified} tasks — parallel work may be possible.`}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="px-3 pb-3 pt-2 bg-white flex flex-col gap-2">
+                          <textarea
+                            rows={3}
+                            placeholder="e.g. The concrete supplier is delayed 2 days. We won't be able to start until Thursday..."
+                            className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 text-[#1A2B4A] focus:outline-none focus:border-purple-400 resize-none"
+                            value={chat.message}
+                            onChange={e => setSofiaChat(task.id, { message: e.target.value })}
+                          />
+                          <button
+                            disabled={!chat.message.trim() || chat.sending}
+                            onClick={() => sendToSofia(task.id)}
+                            className="w-full py-2.5 rounded-xl bg-purple-600 text-white text-xs font-bold disabled:opacity-50 flex items-center justify-center gap-1.5 transition active:scale-[0.98]">
+                            {chat.sending
+                              ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"/> Sofia is analyzing…</>
+                              : '📤 Send to Sofia'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -443,7 +654,7 @@ export default function GuestPortal() {
                   onChange={e => setForm(f => f ? { ...f, sub_notes: e.target.value } : f)}/>
               </div>
 
-              {/* Confirm commitment toggle */}
+              {/* Confirm toggle */}
               <button type="button"
                 onClick={() => setForm(f => f ? { ...f, sub_confirmed: !f.sub_confirmed } : f)}
                 className={`w-full py-3 rounded-2xl border-2 font-bold text-sm flex items-center justify-center gap-2 transition ${

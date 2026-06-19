@@ -22,7 +22,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
     const { data: tasks } = await supabaseAdmin
       .from('bf_tasks')
-      .select('id, name, status, start_date, end_date, sub_start_date, sub_end_date, sub_notes, sub_crew_size, sub_materials_status, sub_confirmed, notes, portal_token, delay_days, inspection_required, inspection_status')
+      .select('id, name, status, start_date, end_date, sub_start_date, sub_end_date, sub_notes, sub_crew_size, sub_materials_status, sub_confirmed, notes, portal_token, delay_days, inspection_required, inspection_status, task_order')
       .eq('project_id', projectId)
       .or(`assigned_to.eq.${sub.company},subcontractor_phone.eq.${sub.phone}`)
       .order('task_order', { ascending: true })
@@ -45,6 +45,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const {
       taskId, sub_start_date, sub_end_date, sub_notes,
       sub_crew_size, sub_materials_status, sub_confirmed,
+      status, inspection_status,
     } = await req.json()
     if (!taskId) return NextResponse.json({ error: 'Missing taskId' }, { status: 400 })
 
@@ -61,16 +62,18 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     if (!task) return NextResponse.json({ error: 'Task not found' }, { status: 404 })
 
     const updateData: Record<string, unknown> = {}
-    if (sub_start_date      !== undefined) updateData.sub_start_date      = sub_start_date || null
-    if (sub_end_date        !== undefined) updateData.sub_end_date        = sub_end_date   || null
-    if (sub_notes           !== undefined) updateData.sub_notes           = sub_notes      || null
-    if (sub_crew_size       !== undefined) updateData.sub_crew_size       = sub_crew_size  || null
+    if (sub_start_date       !== undefined) updateData.sub_start_date       = sub_start_date || null
+    if (sub_end_date         !== undefined) updateData.sub_end_date         = sub_end_date   || null
+    if (sub_notes            !== undefined) updateData.sub_notes            = sub_notes      || null
+    if (sub_crew_size        !== undefined) updateData.sub_crew_size        = sub_crew_size  || null
     if (sub_materials_status !== undefined) updateData.sub_materials_status = sub_materials_status || null
-    if (sub_confirmed       !== undefined) updateData.sub_confirmed       = sub_confirmed
+    if (sub_confirmed        !== undefined) updateData.sub_confirmed        = sub_confirmed
+    if (status               !== undefined) updateData.status               = status
+    if (inspection_status    !== undefined) updateData.inspection_status    = inspection_status
 
     await supabaseAdmin.from('bf_tasks').update(updateData).eq('id', taskId)
 
-    // Sofia conflict detection
+    // ── Sofia conflict detection & notifications ──
     const conflicts: string[] = []
     const effectiveEnd = sub_end_date || task.end_date
 
@@ -94,6 +97,19 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       }
     }
 
+    // Status change notifications
+    if (status) {
+      const statusLabel: Record<string, string> = {
+        completed: '✅ Completed',
+        in_progress: '🟢 On Track',
+        pending: '⏳ Pending',
+        delayed: '🔴 Delayed',
+      }
+      conflicts.push(`📊 ${sub.company} marked "${task.name}" as: ${statusLabel[status] ?? status}`)
+    }
+    if (inspection_status === 'failed') {
+      conflicts.push(`❌ Inspection FAILED on "${task.name}" — builder action required.`)
+    }
     if (sub_notes?.trim()) conflicts.push(`📝 Sub note on "${task.name}": "${sub_notes.trim()}"`)
     if (sub_crew_size) conflicts.push(`👷 ${sub.company} confirmed ${sub_crew_size} crew members for "${task.name}".`)
     if (sub_materials_status === 'not_ordered') conflicts.push(`📦 Materials for "${task.name}" not yet ordered — may delay start.`)
