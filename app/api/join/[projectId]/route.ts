@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 type Ctx = { params: Promise<{ projectId: string }> }
 
-// GET /api/join/[projectId] — public: returns project info for the form
+// GET /api/join/[projectId] — public: returns project info + registered subs for re-entry
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const { projectId } = await params
   const { data: project } = await supabaseAdmin
@@ -13,7 +13,15 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     .eq('id', projectId)
     .single()
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json({ project })
+
+  // Return registered subs for re-entry buttons (no sensitive data)
+  const { data: registeredSubs } = await supabaseAdmin
+    .from('bf_subcontractors')
+    .select('id, company, trade, name')
+    .eq('project_id', projectId)
+    .order('joined_at', { ascending: true })
+
+  return NextResponse.json({ project, registeredSubs: registeredSubs ?? [] })
 }
 
 // POST /api/join/[projectId] — public: register a subcontractor
@@ -35,7 +43,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     const digits = phone.replace(/\D/g, '')
     const e164 = digits.length === 10 ? `+1${digits}` : `+${digits}`
 
-    // Check if subcontractor already registered for this project with same phone
+    // Check if subcontractor already registered
     const { data: existing } = await supabaseAdmin
       .from('bf_subcontractors')
       .select('id')
@@ -45,14 +53,12 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
     let subId: string
     if (existing) {
-      // Update existing registration
       subId = existing.id
       await supabaseAdmin
         .from('bf_subcontractors')
-        .update({ name: contactName, company, trade, email: email ?? '', })
+        .update({ name: contactName, company, trade, email: email ?? '' })
         .eq('id', subId)
     } else {
-      // New registration
       subId = uuidv4()
       const { error: insertError } = await supabaseAdmin
         .from('bf_subcontractors')
