@@ -63,6 +63,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: !error, error: error?.message })
     }
 
+    if (action === 'deleteTask') {
+      const { taskId } = body
+      const { error } = await supabaseAdmin.from('bf_tasks').delete().eq('id', taskId)
+      if (error) console.error('[db/deleteTask]', error)
+      return NextResponse.json({ ok: !error })
+    }
+
     if (action === 'addHistory') {
       const { entries } = body
       if (!entries?.length) return NextResponse.json({ ok: true })

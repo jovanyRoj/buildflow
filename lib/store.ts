@@ -30,6 +30,8 @@ interface BuildFlowStore {
 
   // Tasks
   updateTask: (projectId: string, taskId: string, data: Partial<Pick<Task, 'name' | 'status' | 'startDate' | 'endDate' | 'notes' | 'assignedTo' | 'subcontractorPhone' | 'inspectionStatus' | 'inspectionNotes'>>) => void
+  addTask: (projectId: string, taskData: { name: string; startDate: string; endDate: string; notes?: string }) => void
+  deleteTask: (projectId: string, taskId: string) => void
 
   // Notifications
   markNotificationRead: (projectId: string, notifId: string) => void
@@ -282,6 +284,81 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
       return {
         projects: state.projects.map(p => p.id === projectId ? updatedProject : p),
       }
+    })
+  },
+
+  addTask: (projectId, taskData) => {
+    set(state => {
+      const project = state.projects.find(p => p.id === projectId)
+      if (!project) return state
+      const id = uuidv4()
+      const raw = `${projectId}:${id}:${Date.now()}`
+      const portalToken = btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+      const now = new Date().toISOString()
+      const startDate = taskData.startDate
+      const endDate = taskData.endDate
+      const durationDays = Math.max(1, Math.ceil(
+        (new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)
+      ))
+      const newTask: Task = {
+        id, projectId, name: taskData.name,
+        order: project.tasks.length + 1,
+        startDate, endDate, originalEndDate: endDate,
+        durationDays, status: 'pending', delayDays: 0,
+        assignedTo: '', notes: taskData.notes ?? '',
+        dependencies: [], inspectionRequired: false,
+        inspectionStatus: 'not_required', portalToken,
+        updatedAt: now,
+      }
+      const history: HistoryEntry = {
+        id: uuidv4(), projectId, taskId: id, type: 'taskAdded',
+        description: `Task "${taskData.name}" added manually`,
+        timestamp: now,
+      }
+      const updatedProject: Project = {
+        ...project,
+        tasks: [...project.tasks, newTask],
+        history: [...project.history, history],
+        updatedAt: now,
+      }
+      const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
+      fetch(`${appUrl}/api/db`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'saveTasks', tasks: [newTask] }),
+      }).catch(() => {})
+      fetch(`${appUrl}/api/db`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'addHistory', entries: [history] }),
+      }).catch(() => {})
+      return { projects: state.projects.map(p => p.id === projectId ? updatedProject : p) }
+    })
+  },
+
+  deleteTask: (projectId, taskId) => {
+    set(state => {
+      const project = state.projects.find(p => p.id === projectId)
+      if (!project) return state
+      const task = project.tasks.find(t => t.id === taskId)
+      const history: HistoryEntry = {
+        id: uuidv4(), projectId, taskId, type: 'taskRemoved',
+        description: `Task "${task?.name ?? taskId}" deleted`,
+        timestamp: new Date().toISOString(),
+      }
+      const updatedTasks = project.tasks.filter(t => t.id !== taskId)
+      const updatedProject: Project = {
+        ...project,
+        tasks: updatedTasks,
+        progressPercentage: calculateProgress(updatedTasks),
+        status: deriveProjectStatus(updatedTasks),
+        history: [...project.history, history],
+        updatedAt: new Date().toISOString(),
+      }
+      const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
+      fetch(`${appUrl}/api/db`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deleteTask', taskId }),
+      }).catch(() => {})
+      return { projects: state.projects.map(p => p.id === projectId ? updatedProject : p) }
     })
   },
 

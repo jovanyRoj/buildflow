@@ -9,6 +9,14 @@ import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
 import { useAuthGuard } from '@/lib/useAuthGuard'
 
+const STATUS_COLORS: Record<string, string> = {
+  pending:     'bg-gray-100 text-gray-600',
+  active:      'bg-blue-100 text-blue-700',
+  in_progress: 'bg-orange-100 text-orange-700',
+  delayed:     'bg-red-100 text-red-700',
+  completed:   'bg-green-100 text-green-700',
+}
+
 const FILE_CATEGORIES = [
   { value: 'foundation',  label: 'Foundation',  icon: '🏗️' },
   { value: 'framing',     label: 'Framing',      icon: '🪵' },
@@ -38,10 +46,14 @@ function formatBytes(b: number) {
 export default function ProjectDetailPage() {
   const params   = useParams()
   const router   = useRouter()
-  const { getProject, deleteProject } = useBuildFlowStore()
+  const { getProject, deleteProject, addTask, deleteTask } = useBuildFlowStore()
   const { ready } = useAuthGuard()
   const project  = getProject(params.id as string)
-  const [showDelete, setShowDelete]   = useState(false)
+  const [showDelete, setShowDelete]       = useState(false)
+  const [showAddTask, setShowAddTask]     = useState(false)
+  const [newTask, setNewTask]             = useState({ name: '', startDate: '', endDate: '', notes: '' })
+  const [addingTask, setAddingTask]       = useState(false)
+  const [taskToDelete, setTaskToDelete]   = useState<string | null>(null)
   const [files, setFiles]             = useState<ProjectFile[]>([])
   const [loadingFiles, setLoadingFiles] = useState(true)
   const [uploading, setUploading]     = useState(false)
@@ -81,6 +93,16 @@ export default function ProjectDetailPage() {
     if (!project) return
     await fetch(`/api/projects/${project.id}/files/${fileId}`, { method: 'DELETE' })
     setFiles(prev => prev.filter(f => f.id !== fileId))
+  }
+
+  function handleAddTask(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newTask.name || !newTask.startDate || !newTask.endDate) return
+    setAddingTask(true)
+    addTask(project!.id, newTask)
+    setNewTask({ name: '', startDate: '', endDate: '', notes: '' })
+    setAddingTask(false)
+    setShowAddTask(false)
   }
 
   if (!ready) return <Spinner />
@@ -189,26 +211,46 @@ export default function ProjectDetailPage() {
 
       {/* Tasks */}
       <div className="px-4 mb-5">
-        <h2 className="text-sm font-bold text-[#1A2B4A] mb-3">Tasks</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-[#1A2B4A]">Tasks ({project.tasks.length})</h2>
+          <button onClick={() => setShowAddTask(true)}
+            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-xl active:scale-95 transition">
+            <svg width="12" height="12" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Task
+          </button>
+        </div>
         <div className="card divide-y divide-gray-50">
           {project.tasks.map(task => (
-            <Link key={task.id} href={`/projects/${project.id}/tasks/${task.id}`}>
-              <div className="px-4 py-3.5 flex items-center gap-3 hover:bg-gray-50 transition">
+            <div key={task.id} className="flex items-center gap-0 hover:bg-gray-50 transition group">
+              <Link href={`/projects/${project.id}/tasks/${task.id}`} className="flex-1 px-4 py-3.5 flex items-center gap-3 min-w-0">
                 <span className="text-gray-300 text-xs w-5 text-right flex-shrink-0">{task.order}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[#1A2B4A] truncate">{task.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {format(parseISO(task.startDate), 'MMM d')} → {format(parseISO(task.endDate), 'MMM d')}
-                    {task.assignedTo && <span className="ml-2 text-gray-300">· {task.assignedTo}</span>}
-                  </p>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <p className="text-xs text-gray-400">
+                      {format(parseISO(task.startDate), 'MMM d')} → {format(parseISO(task.endDate), 'MMM d')}
+                    </p>
+                    {task.assignedTo && (
+                      <span className="text-xs text-blue-500 font-medium truncate max-w-[100px]">👷 {task.assignedTo}</span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {task.delayDays > 0 && <span className="text-xs text-red-500 font-medium">+{task.delayDays}d</span>}
-                  <TaskStatusBadge status={task.status} />
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[task.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {task.status.replace('_', ' ')}
+                  </span>
                   <svg width="14" height="14" fill="none" stroke="#cbd5e1" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
                 </div>
-              </div>
-            </Link>
+              </Link>
+              <button
+                onClick={() => setTaskToDelete(task.id)}
+                className="px-3 py-3.5 text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100 flex-shrink-0">
+                <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -300,6 +342,67 @@ export default function ProjectDetailPage() {
           </button>
         </div>
       </div>
+
+      {/* Add Task Modal */}
+      {showAddTask && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-0">
+          <div className="bg-white rounded-t-3xl p-5 w-full max-w-[480px] shadow-2xl pb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-[#1A2B4A]">Add Custom Task</h3>
+              <button onClick={() => setShowAddTask(false)} className="p-1.5 text-gray-400">
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <form onSubmit={handleAddTask} className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1.5">TASK NAME *</label>
+                <input className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm"
+                  placeholder="e.g. Custom Inspection, Site Cleanup..."
+                  value={newTask.name} onChange={e => setNewTask(t => ({ ...t, name: e.target.value }))} required/>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 block mb-1.5">START DATE *</label>
+                  <input type="date" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm"
+                    value={newTask.startDate} onChange={e => setNewTask(t => ({ ...t, startDate: e.target.value }))} required/>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 block mb-1.5">END DATE *</label>
+                  <input type="date" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm"
+                    value={newTask.endDate} onChange={e => setNewTask(t => ({ ...t, endDate: e.target.value }))} required/>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1.5">NOTES (optional)</label>
+                <textarea className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm resize-none" rows={2}
+                  placeholder="Instructions for this task..."
+                  value={newTask.notes} onChange={e => setNewTask(t => ({ ...t, notes: e.target.value }))}/>
+              </div>
+              <button type="submit" disabled={addingTask}
+                className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold text-sm mt-1 disabled:opacity-60">
+                {addingTask ? 'Adding...' : '+ Add Task'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Task Confirmation */}
+      {taskToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Delete Task?</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              <strong>{project.tasks.find(t => t.id === taskToDelete)?.name}</strong> will be permanently removed.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setTaskToDelete(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600">Cancel</button>
+              <button onClick={() => { deleteTask(project.id, taskToDelete); setTaskToDelete(null) }}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">

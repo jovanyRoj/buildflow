@@ -1,4 +1,5 @@
 'use client'
+import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
 import { useBuildFlowStore } from '@/lib/store'
 import TopBar from '@/components/ui/TopBar'
@@ -16,6 +17,7 @@ const NOTIF_ICONS: Record<NotificationType, { icon: string; bg: string; text: st
 }
 
 export default function NotificationsPage() {
+  const router = useRouter()
   const { projects, getAllNotifications, markNotificationRead, markAllNotificationsRead } = useBuildFlowStore()
   const { ready } = useAuthGuard()
 
@@ -23,6 +25,15 @@ export default function NotificationsPage() {
 
   const all = getAllNotifications()
   const unread = all.filter(n => !n.isRead).length
+
+  function handleNotifPress(projectId: string, notifId: string, taskId?: string) {
+    markNotificationRead(projectId, notifId)
+    if (taskId) {
+      router.push(`/projects/${projectId}/tasks/${taskId}`)
+    } else {
+      router.push(`/projects/${projectId}`)
+    }
+  }
 
   return (
     <div className="pb-24">
@@ -50,10 +61,12 @@ export default function NotificationsPage() {
           {unread > 0 && <p className="text-xs font-semibold text-gray-500 px-1 mb-1">{unread} unread</p>}
           {all.map(notif => {
             const style = NOTIF_ICONS[notif.type]
+            const project = projects.find(p => p.id === notif.projectId)
+            const task = project?.tasks.find(t => t.id === notif.taskId)
             return (
               <div key={notif.id}
-                className={`card p-4 transition cursor-pointer ${!notif.isRead ? 'border-l-4 border-blue-500' : ''}`}
-                onClick={() => markNotificationRead(notif.projectId, notif.id)}>
+                className={`card p-4 transition cursor-pointer active:scale-[0.99] ${!notif.isRead ? 'border-l-4 border-blue-500' : ''}`}
+                onClick={() => handleNotifPress(notif.projectId, notif.id, notif.taskId)}>
                 <div className="flex items-start gap-3">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${style.bg} text-xl`}>
                     {style.icon}
@@ -64,11 +77,22 @@ export default function NotificationsPage() {
                       {!notif.isRead && <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-1.5"/>}
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">{notif.body}</p>
-                    <div className="flex items-center gap-3 mt-1.5">
-                      <span className="text-xs text-gray-400">{projects.find(p => p.id === notif.projectId)?.name ?? ''}</span>
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      <span className="text-xs text-gray-400 font-medium">{project?.name ?? ''}</span>
+                      {task && (
+                        <>
+                          <span className="text-gray-200 text-xs">·</span>
+                          <span className="text-xs text-blue-500 truncate max-w-[140px]">{task.name}</span>
+                        </>
+                      )}
                       <span className="text-gray-200 text-xs">·</span>
                       <span className="text-xs text-gray-400">{format(parseISO(notif.createdAt), 'MMM d, h:mm a')}</span>
                     </div>
+                    {/* Tap hint */}
+                    <p className="text-xs text-blue-400 mt-1.5 flex items-center gap-1">
+                      <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+                      {notif.taskId ? 'View task details' : 'View project'}
+                    </p>
                   </div>
                 </div>
               </div>
