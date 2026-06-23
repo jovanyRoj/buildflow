@@ -1,40 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { sendSMS, smsTaskDelayed, smsParallelWork, smsScheduleShifted } from '@/lib/sms'
 
 type Ctx = { params: Promise<{ projectId: string; subId: string }> }
 
-// ── Sofia schedule-cascade system prompt ─────────────────────────────────────
 const SOFIA_SCHEDULE_PROMPT = `You are Sofia, an AI construction project coordinator for BuildFlow.
-A subcontractor has sent you a message about a delay or schedule issue on their task.
+A subcontractor has sent you a message about a delay or issue on their task.
+You have access to the task schedule and recent builder notifications for context.
 
 Your job:
-1. Understand the delay reason (in English or Spanish — respond in the SAME language)
+1. Understand the delay reason (respond in the SAME language as the sub)
 2. Extract how many days of delay (if mentioned or inferable)
-3. Calculate new suggested start/end dates based on the original dates + delay
-4. Decide if downstream tasks need to be postponed or can work in parallel
-5. Write a concise, professional response to the subcontractor confirming what you recorded
+3. Calculate new dates: original + delay_days
+4. Decide if downstream tasks should be postponed or can work in parallel
+5. Reply warmly to the sub confirming what you recorded
+6. Write a concise builder alert
 
 RESPONSE FORMAT — return ONLY valid JSON, no markdown:
 {
-  "delay_days": <integer or 0 if not a delay>,
+  "delay_days": <integer, 0 if no delay>,
   "new_status": "delayed" | "in_progress" | "pending" | "completed" | null,
   "new_sub_start_date": "YYYY-MM-DD" | null,
   "new_sub_end_date": "YYYY-MM-DD" | null,
-  "reason_summary": "Brief reason in English (under 100 chars)",
-  "sub_reply": "Your reply to the sub — warm, bilingual, under 200 chars",
-  "builder_alert": "Alert for the builder — factual, under 150 chars",
+  "reason_summary": "Brief English reason (under 100 chars)",
+  "sub_reply": "Reply to sub — warm, same language, under 200 chars",
+  "builder_alert": "Factual builder alert, under 150 chars",
   "downstream_action": "postpone" | "parallel" | "none",
-  "downstream_note": "Brief note for downstream subs (under 120 chars) — or null if none"
+  "downstream_note": "Note for downstream subs (under 120 chars) or null"
 }
 
 RULES:
-- If delay_days > 0, new_sub_end_date = original_end_date + delay_days
-- If delay_days > 0, new_sub_start_date = original_start_date + delay_days (if start has not passed)
-- downstream_action = "postpone" if the delay prevents next task from starting on schedule
-- downstream_action = "parallel" if tasks CAN overlap (e.g. partial completion, different areas)
-- downstream_action = "none" if no downstream impact
-- Keep sub_reply under 200 characters
-- Always confirm what you recorded`
+- delay_days > 0: new_sub_end_date = original_end + delay_days; new_sub_start_date = original_start + delay_days
+- downstream_action="postpone": next task cannot start until this one finishes
+- downstream_action="parallel": tasks CAN overlap (different areas, partial completion possible)
+- downstream_action="none": no downstream impact
+- If the issue is external (supplier, weather, inspection fail) emphasize urgency in builder_alert`
 
 interface SofiaScheduleResponse {
   delay_days: number
@@ -54,7 +54,8 @@ async function callSofia(
   originalStart: string | null,
   originalEnd: string | null,
   subName: string,
-  projectName: string
+  projectName: string,
+  builderNotes: string
 ): Promise<SofiaScheduleResponse | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return null
@@ -62,8 +63,10 @@ async function callSofia(
   const userPrompt = `SUBCONTRACTOR: ${subName}
 PROJECT: ${projectName}
 TASK: ${taskName}
-ORIGINAL START: ${originalStart ?? 'not set'}
-ORIGINAL END: ${originalEnd ?? 'not set'}
+ORIGINAL SCHEDULE: ${originalStart ?? 'TBD'} → ${originalEnd ?? 'TBD'}
+
+RECENT BUILDER NOTES FOR THIS TASK:
+${builderNotes || '(none)'}
 
 MESSAGE FROM SUBCONTRACTOR:
 "${message}"
@@ -80,29 +83,26 @@ Analyze and respond as Sofia.`
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
+        max_tokens: 450,
         system: SOFIA_SCHEDULE_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
       }),
     })
-
     if (!res.ok) return null
     const data = await res.json()
     const text: string = data.content?.[0]?.text ?? ''
     const clean = text.replace(/```json|```/g, '').trim()
     return JSON.parse(clean) as SofiaScheduleResponse
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
-function addDays(dateStr: string | null, days: number): string | null {
-  if (!dateStr || !days) return dateStr
+function shiftDate(dateStr: string | null | undefined, days: number): string | null {
+  if (!dateStr || !days) return dateStr ?? null
   try {
     const d = new Date(dateStr)
     d.setDate(d.getDate() + days)
     return d.toISOString().split('T')[0]
-  } catch { return dateStr }
+  } catch { return null }
 }
 
 export async function POST(req: NextRequest, { params }: Ctx) {
@@ -113,62 +113,74 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       return NextResponse.json({ error: 'Missing taskId or message' }, { status: 400 })
     }
 
-    // Verify sub access
+    // Verify sub
     const { data: sub } = await supabaseAdmin
       .from('bf_subcontractors')
       .select('id, name, company, phone, trade')
       .eq('id', subId).eq('project_id', projectId).maybeSingle()
     if (!sub) return NextResponse.json({ error: 'Access denied' }, { status: 403 })
 
-    // Get the task being reported on
+    // Get task
     const { data: task } = await supabaseAdmin
       .from('bf_tasks')
       .select('id, name, status, start_date, end_date, sub_start_date, sub_end_date, task_order')
       .eq('id', taskId).eq('project_id', projectId).maybeSingle()
     if (!task) return NextResponse.json({ error: 'Task not found' }, { status: 404 })
 
-    // Get project name
+    // Get project
     const { data: project } = await supabaseAdmin
-      .from('bf_projects')
-      .select('id, name')
-      .eq('id', projectId).maybeSingle()
+      .from('bf_projects').select('id, name').eq('id', projectId).maybeSingle()
+    const projectName = project?.name ?? 'the project'
 
-    // ── Ask Sofia ──
+    // ── Fetch recent builder notes for Sofia context ──
+    const { data: recentNotifs } = await supabaseAdmin
+      .from('bf_notifications')
+      .select('title, body, created_at')
+      .eq('project_id', projectId)
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: false })
+      .limit(5)
+
+    const builderNotes = recentNotifs
+      ?.map(n => `[${new Date(n.created_at).toLocaleDateString()}] ${n.title}: ${n.body.slice(0, 150)}`)
+      .join('\n') ?? ''
+
+    // ── Call Sofia with full context ──
     const sofiaResult = await callSofia(
       message,
       task.name,
       task.sub_start_date || task.start_date,
       task.sub_end_date   || task.end_date,
       sub.name || sub.company,
-      project?.name ?? 'the project'
+      projectName,
+      builderNotes
     )
 
-    // ── Fallback if Sofia is offline ──
-    const isSpanish = /[áéíóúüñ¿¡]|\b(hola|gracias|retraso|días|materiales|semana)\b/i.test(message)
+    const isSpanish = /[áéíóúüñ¿¡]|\b(hola|gracias|retraso|días|materiales|semana|proveedor|problema)\b/i.test(message)
     const fallbackReply = isSpanish
-      ? `Recibido, ${sub.name || sub.company}. Tu mensaje fue registrado y notificaré al builder.`
-      : `Got it, ${sub.name || sub.company}. Your message was recorded and I'll notify your builder.`
+      ? `Recibido, ${sub.name || sub.company}. Tu mensaje fue registrado y el builder fue notificado.`
+      : `Got it, ${sub.name || sub.company}. Your message was recorded and your builder has been notified.`
 
     const reply = sofiaResult?.sub_reply ?? fallbackReply
     const delayDays = sofiaResult?.delay_days ?? 0
 
     // ── Update current task ──
-    const taskUpdate: Record<string, unknown> = {
-      sub_notes: message,
-    }
-    if (sofiaResult?.new_status)          taskUpdate.status          = sofiaResult.new_status
-    if (sofiaResult?.new_sub_start_date)  taskUpdate.sub_start_date  = sofiaResult.new_sub_start_date
-    if (sofiaResult?.new_sub_end_date)    taskUpdate.sub_end_date    = sofiaResult.new_sub_end_date
-    if (delayDays > 0)                    taskUpdate.delay_days      = delayDays
+    const taskUpdate: Record<string, unknown> = { sub_notes: message }
+    if (sofiaResult?.new_status)         taskUpdate.status         = sofiaResult.new_status
+    if (sofiaResult?.new_sub_start_date) taskUpdate.sub_start_date = sofiaResult.new_sub_start_date
+    if (sofiaResult?.new_sub_end_date)   taskUpdate.sub_end_date   = sofiaResult.new_sub_end_date
+    if (delayDays > 0)                   taskUpdate.delay_days     = delayDays
 
     await supabaseAdmin.from('bf_tasks').update(taskUpdate).eq('id', taskId)
 
-    // ── Cascade to downstream tasks ──
+    // ── Get downstream tasks ──
     let downstreamNotified = 0
-    if (delayDays > 0 && task.task_order !== null && sofiaResult?.downstream_action === 'postpone') {
+    const downstreamAction = sofiaResult?.downstream_action ?? 'none'
+
+    if (task.task_order !== null && downstreamAction !== 'none') {
       const { data: downstreamTasks } = await supabaseAdmin
         .from('bf_tasks')
-        .select('id, name, start_date, end_date, subcontractor_phone, assigned_to, status')
+        .select('id, name, start_date, end_date, subcontractor_phone, assigned_to')
         .eq('project_id', projectId)
         .gt('task_order', task.task_order)
         .not('start_date', 'is', null)
@@ -176,40 +188,36 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         .limit(5)
 
       if (downstreamTasks) {
-        for (const dt of downstreamTasks) {
+        for (let i = 0; i < downstreamTasks.length; i++) {
+          const dt = downstreamTasks[i]
           if (!dt.start_date) continue
-          const newStart = addDays(dt.start_date, delayDays)
-          const newEnd   = addDays(dt.end_date,   delayDays)
 
-          await supabaseAdmin.from('bf_tasks').update({
-            start_date: newStart,
-            end_date:   newEnd,
-          }).eq('id', dt.id)
+          if (downstreamAction === 'postpone' && delayDays > 0) {
+            // Shift dates forward
+            const newStart = shiftDate(dt.start_date, delayDays)
+            const newEnd   = shiftDate(dt.end_date,   delayDays)
+            await supabaseAdmin.from('bf_tasks').update({
+              start_date: newStart,
+              end_date: newEnd,
+            }).eq('id', dt.id)
 
-          downstreamNotified++
-
-          // SMS to downstream sub if Twilio is configured
-          const downPhone = dt.subcontractor_phone
-          if (downPhone && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
-            const smsBody = sofiaResult?.downstream_note
-              ? `📅 BuildFlow — ${sofiaResult.downstream_note} Task "${dt.name}" → new start: ${newStart}.`
-              : `📅 BuildFlow — Schedule update: "${dt.name}" moved ${delayDays}d. New start: ${newStart}. Prev task "${task.name}" was delayed.`
-
-            try {
-              const twilio = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')
-              await fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Basic ${twilio}`,
-                  'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                  From: process.env.TWILIO_PHONE_NUMBER,
-                  To: downPhone,
-                  Body: smsBody,
-                }).toString(),
-              })
-            } catch { /* SMS failed — non-fatal */ }
+            if (dt.subcontractor_phone) {
+              const smsBody = i === 0 && sofiaResult?.downstream_note
+                ? `📅 BuildFlow — ${sofiaResult.downstream_note} "${dt.name}" moved to ${newStart} at ${projectName}.`
+                : smsTaskDelayed(task.name, dt.name, delayDays, newStart, projectName)
+              await sendSMS(dt.subcontractor_phone, smsBody)
+              downstreamNotified++
+            }
+          } else if (downstreamAction === 'parallel') {
+            // Don't shift dates — but SMS to coordinate
+            if (dt.subcontractor_phone && i === 0) {
+              const smsBody = sofiaResult?.downstream_note
+                ? `🔀 BuildFlow — ${sofiaResult.downstream_note} Coordinate with "${task.name}" team at ${projectName}.`
+                : smsParallelWork(task.name, dt.name, projectName)
+              await sendSMS(dt.subcontractor_phone, smsBody)
+              downstreamNotified++
+            }
+            break // parallel only affects the immediate next task
           }
         }
       }
@@ -218,14 +226,15 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     // ── Builder notification ──
     const builderAlert = sofiaResult?.builder_alert ?? `${sub.company} reported an issue on "${task.name}".`
     const notifLines = [
-      `📨 Message from ${sub.company}: "${message.slice(0, 120)}${message.length > 120 ? '…' : ''}"`,
-      delayDays > 0 ? `⏰ Sofia estimated ${delayDays} day(s) delay on "${task.name}"` : null,
+      `📨 ${sub.company}: "${message.slice(0, 120)}${message.length > 120 ? '…' : ''}"`,
       sofiaResult?.reason_summary ? `📋 Reason: ${sofiaResult.reason_summary}` : null,
-      downstreamNotified > 0
-        ? `🔁 Sofia shifted ${downstreamNotified} downstream task(s) by ${delayDays} day(s) and notified subs`
-        : null,
-      sofiaResult?.downstream_action === 'parallel'
-        ? `🔀 Sofia suggests parallel work is possible despite delay` : null,
+      delayDays > 0 ? `⏰ ${delayDays} day(s) delay on "${task.name}"` : null,
+      downstreamNotified > 0 && downstreamAction === 'postpone'
+        ? `🔁 Sofia shifted ${downstreamNotified} downstream task(s) +${delayDays}d and sent SMS` : null,
+      downstreamNotified > 0 && downstreamAction === 'parallel'
+        ? `🔀 Sofia notified next sub to work in parallel` : null,
+      builderNotes
+        ? `📋 Context: ${builderNotes.split('\n')[0].slice(0, 120)}` : null,
     ].filter(Boolean)
 
     await supabaseAdmin.from('bf_notifications').insert({
@@ -241,7 +250,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       sofiaReply: reply,
       delayDays,
       downstreamNotified,
-      downstreamAction: sofiaResult?.downstream_action ?? 'none',
+      downstreamAction,
       newDates: {
         sub_start_date: sofiaResult?.new_sub_start_date ?? null,
         sub_end_date:   sofiaResult?.new_sub_end_date   ?? null,

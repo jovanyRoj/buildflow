@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     if (type === 'task_assigned' && task) {
       const phone = task.subcontractorPhone
       if (!phone) return NextResponse.json({ ok: false, error: 'No phone number' }, { status: 400 })
-      const message = buildTaskNotificationSMS(task, project, builderName)
+      const message = buildTaskNotificationSMS(task, project, builderName ?? 'Your builder')
       const result = await sendSMS(phone, message)
       return NextResponse.json(result)
     }

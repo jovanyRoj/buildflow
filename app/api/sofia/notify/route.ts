@@ -98,7 +98,7 @@ async function sendTaskReminder(taskId: string) {
 
   const message = buildSofiaTaskReminder(ctx, daysUntil)
   const result = await sendSMS(task.subcontractor_phone, message)
-  return NextResponse.json({ ok: result.ok, sid: result.sid, message })
+  return NextResponse.json({ ok: result.ok, message })
 }
 
 // ─── Inspection Reminder ──────────────────────────────────────────────────────
