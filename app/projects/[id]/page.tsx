@@ -237,6 +237,27 @@ export default function ProjectDetailPage() {
         ))}
       </div>
 
+      {/* Quick Access — new modules */}
+      <div className="px-4 mb-4">
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Project Modules</p>
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          {[
+            { href: `/projects/${project.id}/finances`,    icon: '💰', label: 'Finances',     color: 'bg-green-50 text-green-700' },
+            { href: `/projects/${project.id}/quote`,       icon: '📋', label: 'Quote',        color: 'bg-blue-50 text-blue-700'  },
+            { href: `/projects/${project.id}/materials`,   icon: '🪵', label: 'Materials',    color: 'bg-amber-50 text-amber-700' },
+            { href: `/projects/${project.id}/documents`,   icon: '📂', label: 'Documents',    color: 'bg-purple-50 text-purple-700' },
+            { href: `/projects/${project.id}/inspections`, icon: '🔍', label: 'Inspections',  color: 'bg-orange-50 text-orange-700' },
+            { href: `/projects/${project.id}/timeline`,    icon: '📅', label: 'Timeline',     color: 'bg-indigo-50 text-indigo-700' },
+          ].map(m => (
+            <Link key={m.href} href={m.href}
+              className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl ${m.color} min-w-[72px]`}>
+              <span className="text-xl">{m.icon}</span>
+              <span className="text-xs font-semibold">{m.label}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
       {/* ── TASKS ─────────────────────────────────────────── */}
       <div className="px-4 mb-5">
         <div className="flex items-center justify-between mb-3">
