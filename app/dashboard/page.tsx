@@ -99,55 +99,65 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {projects.slice(0, 4).map(p => (
-              <Link key={p.id} href={`/projects/${p.id}`}>
-                <div className="card p-4 hover:shadow-md transition">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-[#1A2B4A] text-sm truncate">{p.name}</h3>
-                      <p className="text-gray-400 text-xs truncate mt-0.5">{p.address}</p>
+            {projects.slice(0, 4).map(p => {
+              const bgColor = (p as any).bgColor || '#1A2B4A'
+              return (
+                <Link key={p.id} href={`/projects/${p.id}`}>
+                  <div className="card overflow-hidden hover:shadow-md transition">
+                    <div className="h-2 w-full" style={{ backgroundColor: bgColor }} />
+                    <div className="p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-[#1A2B4A] text-sm truncate">{p.name}</h3>
+                          <p className="text-gray-400 text-xs truncate mt-0.5">{p.address}</p>
+                        </div>
+                        <ProjectStatusBadge status={p.status} />
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-500">Progress</span>
+                          <span className="text-xs font-semibold text-[#1A2B4A]">{p.progressPercentage}%</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all"
+                            style={{ width: `${p.progressPercentage}%`, backgroundColor: p.status === 'delayed' ? '#ef4444' : p.status === 'completed' ? '#22c55e' : bgColor }} />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
+                        <span>Est. close: {format(parseISO(p.estimatedEndDate), 'MMM d, yyyy')}</span>
+                        <span>{p.tasks.filter(t => t.status === 'completed').length}/{p.tasks.length} tasks</span>
+                      </div>
                     </div>
-                    <ProjectStatusBadge status={p.status} />
                   </div>
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-gray-500">Progress</span>
-                      <span className="text-xs font-semibold text-[#1A2B4A]">{p.progressPercentage}%</span>
-                    </div>
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full transition-all ${p.status === 'delayed' ? 'bg-red-500' : p.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}`}
-                        style={{ width: `${p.progressPercentage}%` }} />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
-                    <span>Est. close: {format(parseISO(p.estimatedEndDate), 'MMM d, yyyy')}</span>
-                    <span>{p.tasks.filter(t => t.status === 'completed').length}/{p.tasks.length} tasks</span>
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              )
+            })}
           </div>
         )}
       </div>
 
-      {/* Upcoming Tasks */}
+      {/* Upcoming Tasks — now link to task detail for edit/delete */}
       {upcomingTasks.length > 0 && (
         <div className="px-4 mt-6">
           <h2 className="text-base font-bold text-[#1A2B4A] mb-3">Upcoming Tasks</h2>
           <div className="card divide-y divide-gray-50">
             {upcomingTasks.map(t => (
-              <Link key={t.id} href={`/projects/${t.projectId}`}>
+              <Link key={t.id} href={`/projects/${t.projectId}/tasks/${t.id}`}>
                 <div className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition">
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${t.status === 'active' ? 'bg-blue-500' : 'bg-gray-300'}`}/>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[#1A2B4A] truncate">{t.name}</p>
                     <p className="text-xs text-gray-400">{t.projectName}</p>
                   </div>
-                  <span className="text-xs text-gray-400 flex-shrink-0">{format(parseISO(t.startDate), 'MMM d')}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 flex-shrink-0">{format(parseISO(t.startDate), 'MMM d')}</span>
+                    <svg width="12" height="12" fill="none" stroke="#cbd5e1" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+                  </div>
                 </div>
               </Link>
             ))}
           </div>
+          <p className="text-xs text-gray-400 text-center mt-2">Tap a task to edit status, dates, or delete it</p>
         </div>
       )}
 

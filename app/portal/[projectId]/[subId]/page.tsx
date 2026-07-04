@@ -43,6 +43,11 @@ function formatBytes(b: number) {
   return `${(b / 1024 / 1024).toFixed(1)} MB`
 }
 
+function fmtMoney(n: number | null | undefined) {
+  if (!n && n !== 0) return null
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+}
+
 function daysLabel(dateStr?: string | null) {
   if (!dateStr) return null
   try {
@@ -57,6 +62,7 @@ function daysLabel(dateStr?: string | null) {
 interface CommitForm {
   sub_start_date: string; sub_end_date: string; sub_notes: string
   sub_crew_size: string; sub_materials_status: string; sub_confirmed: boolean
+  sub_quoted_cost: string
 }
 interface DateEdit { sub_start_date: string; sub_end_date: string }
 interface SofiaChat {
@@ -96,7 +102,6 @@ export default function GuestPortal() {
       .then(d => {
         if (d.error) { setError(d.error); return }
         setData(d)
-        // Pre-fill date edit state from task data
         const edits: Record<string, DateEdit> = {}
         for (const t of d.tasks ?? []) {
           edits[t.id] = {
@@ -119,6 +124,7 @@ export default function GuestPortal() {
       sub_crew_size:        task.sub_crew_size   ? String(task.sub_crew_size) : '',
       sub_materials_status: task.sub_materials_status ?? '',
       sub_confirmed:        task.sub_confirmed  ?? false,
+      sub_quoted_cost:      task.sub_quoted_cost ? String(task.sub_quoted_cost) : '',
     })
   }
 
@@ -137,6 +143,7 @@ export default function GuestPortal() {
           sub_crew_size:        form.sub_crew_size ? parseInt(form.sub_crew_size) : null,
           sub_materials_status: form.sub_materials_status || null,
           sub_confirmed:        form.sub_confirmed,
+          sub_quoted_cost:      form.sub_quoted_cost ? parseFloat(form.sub_quoted_cost) : null,
         }),
       })
       const json = await res.json()
@@ -144,7 +151,11 @@ export default function GuestPortal() {
       setData((d: any) => ({
         ...d,
         tasks: d.tasks.map((t: any) => t.id === editTask.id
-          ? { ...t, ...form, sub_crew_size: form.sub_crew_size ? parseInt(form.sub_crew_size) : null }
+          ? {
+              ...t, ...form,
+              sub_crew_size: form.sub_crew_size ? parseInt(form.sub_crew_size) : null,
+              sub_quoted_cost: form.sub_quoted_cost ? parseFloat(form.sub_quoted_cost) : null,
+            }
           : t),
       }))
       setSaved(editTask.id)
@@ -353,11 +364,9 @@ export default function GuestPortal() {
                             {STATUS_CONFIG[task.status]?.label ?? task.status}
                           </span>
                         </div>
-                        {/* Builder plan reference */}
                         <div className="flex gap-2 text-xs text-gray-400 mb-2">
                           <span>Builder: {task.start_date ? format(parseISO(task.start_date), 'MMM d') : '—'} → {task.end_date ? format(parseISO(task.end_date), 'MMM d') : '—'}</span>
                         </div>
-                        {/* Editable fields */}
                         <div className="grid grid-cols-2 gap-2 mb-2">
                           <div>
                             <p className="text-xs text-gray-400 mb-1">My Start</p>
@@ -427,8 +436,8 @@ export default function GuestPortal() {
             <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 flex gap-2.5 items-start">
               <span className="text-lg mt-0.5">🤖</span>
               <p className="text-xs text-amber-700 leading-relaxed">
-                <strong>Keep the builder in the loop.</strong> Update your status, and use Sofia chat if anything
-                changes — she&apos;ll notify your builder and adjust affected subs automatically.
+                <strong>Keep the builder in the loop.</strong> Update your status, submit your quote price,
+                and use Sofia chat if anything changes — she&apos;ll notify your builder automatically.
               </p>
             </div>
 
@@ -442,12 +451,18 @@ export default function GuestPortal() {
                 const chat = getSofiaChat(task.id)
                 const isSofiaOpen = sofiaOpen === task.id
                 const currentSubStatus = task.inspection_status === 'failed' ? 'fail_inspection' : task.status
+                const quotedMoney = fmtMoney(task.sub_quoted_cost)
 
                 return (
                   <div key={task.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
                     <div className="px-4 pt-4 pb-3">
                       <div className="flex items-start justify-between gap-2 mb-3">
-                        <p className="text-sm font-bold text-[#1A2B4A]">{task.name}</p>
+                        <div>
+                          <p className="text-sm font-bold text-[#1A2B4A]">{task.name}</p>
+                          {quotedMoney && (
+                            <p className="text-xs text-emerald-600 font-semibold mt-0.5">💵 Quoted: {quotedMoney}</p>
+                          )}
+                        </div>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${cfg.color}`}>{cfg.label}</span>
                       </div>
 
@@ -668,6 +683,28 @@ export default function GuestPortal() {
                       onChange={e => setForm(f => f ? { ...f, sub_end_date: e.target.value } : f)}/>
                   </div>
                 </div>
+              </div>
+
+              {/* Quoted Cost — Sofia will compare vs estimate */}
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1">💵 MY QUOTED PRICE (optional)</label>
+                <p className="text-xs text-gray-400 mb-2">Enter your price for this task. Sofia will compare it against the builder's estimate and send an alert if it differs.</p>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 18500"
+                    className="w-full text-sm border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-[#1A2B4A] font-semibold focus:outline-none focus:border-emerald-400"
+                    value={form.sub_quoted_cost}
+                    onChange={e => setForm(f => f ? { ...f, sub_quoted_cost: e.target.value } : f)}
+                  />
+                </div>
+                {form.sub_quoted_cost && parseFloat(form.sub_quoted_cost) > 0 && (
+                  <p className="text-xs text-emerald-600 mt-1.5">
+                    ✓ Sofia will notify the builder with this quote.
+                  </p>
+                )}
               </div>
 
               <div>

@@ -22,8 +22,8 @@ interface BuildFlowStore {
   initSession: () => Promise<void>
 
   // Projects
-  createProject: (data: { name: string; address: string; projectType: Project['projectType']; startDate: string }) => Promise<Project>
-  updateProject: (id: string, data: Partial<Pick<Project, 'name' | 'address' | 'estimatedEndDate' | 'status'>>) => void
+  createProject: (data: { name: string; address: string; projectType: Project['projectType']; startDate: string; bgColor?: string }) => Promise<Project>
+  updateProject: (id: string, data: Partial<Pick<Project, 'name' | 'address' | 'estimatedEndDate' | 'status' | 'bgColor'>>) => void
   deleteProject: (id: string) => Promise<void>
   getProject: (id: string) => Project | undefined
   refreshProjects: () => Promise<void>
@@ -49,7 +49,6 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
     const session = await getSession()
     if (!session) { set({ loading: false }); return }
     set({ currentUser: session, loading: true })
-    // Ensure user exists in DB
     await upsertUser(session)
     const projects = await loadProjects(session.id)
     set({ projects, loading: false })
@@ -58,7 +57,6 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
   setCurrentUser: async (user) => {
     if (user) {
       saveSession(user)
-      // Upsert user via admin API (bypasses RLS)
       await fetch('/api/db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -73,7 +71,7 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
   },
 
   logout: () => {
-    clearSession() // async, fire-and-forget is fine for signOut
+    clearSession()
     set({ currentUser: null, projects: [] })
   },
 
@@ -101,6 +99,7 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
       estimatedEndDate: lastTask.endDate,
       status: 'active',
       progressPercentage: 0,
+      bgColor: data.bgColor ?? '#1A2B4A',
       tasks,
       subcontractors: [],
       history: [{
@@ -113,7 +112,6 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
       updatedAt: new Date().toISOString(),
     }
 
-    // Save to Supabase via admin API (bypasses RLS)
     const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
     await fetch(`${appUrl}/api/db`, {
       method: 'POST',
@@ -164,7 +162,6 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
       const historyEntries: HistoryEntry[] = []
       const newNotifications: AppNotification[] = []
 
-      // Status change
       if (data.status && data.status !== oldTask.status) {
         historyEntries.push({
           id: uuidv4(), projectId, taskId, type: 'statusChange',
@@ -189,7 +186,6 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
             body: 'Task marked as completed.',
             isRead: false, createdAt: new Date().toISOString(),
           })
-          // Auto-cascade SMS to next subcontractors
           const dependents = project.tasks.filter(t =>
             t.dependencies.includes(taskId) && t.subcontractorPhone
           )
@@ -209,7 +205,6 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
         }
       }
 
-      // Date change
       if (data.endDate && data.endDate !== oldTask.endDate) {
         historyEntries.push({
           id: uuidv4(), projectId, taskId, type: 'dateChange',
@@ -219,7 +214,6 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
         })
       }
 
-      // Inspection change
       if (data.inspectionStatus && data.inspectionStatus !== oldTask.inspectionStatus) {
         historyEntries.push({
           id: uuidv4(), projectId, taskId, type: 'inspectionUpdate',
@@ -235,12 +229,10 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
         })
       }
 
-      // Apply update
       let updatedTasks = project.tasks.map(t =>
         t.id === taskId ? { ...t, ...data, updatedAt: new Date().toISOString() } : t
       )
 
-      // Cascade reschedule
       let cascadeHistory: HistoryEntry[] = []
       let cascadeNotifs: AppNotification[] = []
       if (data.endDate && data.endDate !== oldTask.endDate) {
@@ -272,7 +264,6 @@ export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
         updatedAt: new Date().toISOString(),
       }
 
-      // Persist to Supabase async
       const changedTasks = updatedTasks.filter(t =>
         t.id === taskId || cascadeHistory.some(h => h.taskId === t.id)
       )

@@ -45,6 +45,7 @@ function formatBytes(b: number) {
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
   return `${(b / 1024 / 1024).toFixed(1)} MB`
 }
+
 export default function ProjectDetailPage() {
   const params   = useParams()
   const router   = useRouter()
@@ -65,10 +66,14 @@ export default function ProjectDetailPage() {
   const [uploadError, setUploadError]     = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Edit sub from task row
   const [editSub, setEditSub]   = useState<Sub | null>(null)
   const [editForm, setEditForm] = useState<Sub | null>(null)
   const [editSaving, setEditSaving] = useState(false)
+
+  // ── Refresh project data on mount so sub portal status changes appear ──
+  useEffect(() => {
+    refreshProjects()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!project) return
@@ -120,7 +125,6 @@ export default function ProjectDetailPage() {
     setEditSaving(false); setEditSub(null)
   }
 
-  // Find if a task has a registered sub
   function getTaskSub(task: any): Sub | undefined {
     return contractors.find((c: Sub) =>
       (task.assignedTo && c.company?.toLowerCase().trim() === task.assignedTo?.toLowerCase().trim()) ||
@@ -143,11 +147,11 @@ export default function ProjectDetailPage() {
   const completed = project.tasks.filter(t => t.status === 'completed').length
   const mapsUrl   = `https://maps.google.com/?q=${encodeURIComponent(project.address)}`
   const joinUrl   = `${typeof window !== 'undefined' ? window.location.origin : 'https://buildflow-eight-sigma.vercel.app'}/join/${project.id}`
+  const bgColor   = (project as any).bgColor || '#1A2B4A'
 
-  // Sub coverage stats
-  const unassignedTasks = project.tasks.filter(t => !t.assignedTo)
+  const unassignedTasks      = project.tasks.filter(t => !t.assignedTo)
   const assignedUnregistered = project.tasks.filter(t => t.assignedTo && !getTaskSub(t))
-  const fullyAssigned = project.tasks.filter(t => t.assignedTo && getTaskSub(t))
+  const fullyAssigned        = project.tasks.filter(t => t.assignedTo && getTaskSub(t))
 
   return (
     <div className="pb-24">
@@ -174,8 +178,8 @@ export default function ProjectDetailPage() {
         }
       />
 
-      {/* Header */}
-      <div className="bg-[#1A2B4A] px-5 py-5">
+      {/* Header with project bg color */}
+      <div className="px-5 py-5" style={{ backgroundColor: bgColor }}>
         <div className="flex items-start justify-between mb-3">
           <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
             className="text-white/60 text-xs flex items-center gap-1 underline underline-offset-2 hover:text-white/80 transition">
@@ -189,7 +193,7 @@ export default function ProjectDetailPage() {
           <span className="text-white font-bold text-sm">{project.progressPercentage}%</span>
         </div>
         <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full transition-all duration-700 ${project.status === 'delayed' ? 'bg-red-400' : project.status === 'completed' ? 'bg-green-400' : 'bg-blue-400'}`}
+          <div className={`h-full rounded-full transition-all duration-700 ${project.status === 'delayed' ? 'bg-red-400' : project.status === 'completed' ? 'bg-green-400' : 'bg-blue-300'}`}
             style={{ width: `${project.progressPercentage}%` }} />
         </div>
         <div className="flex items-center justify-between mt-3 text-xs text-white/60">
@@ -237,7 +241,7 @@ export default function ProjectDetailPage() {
         ))}
       </div>
 
-      {/* Quick Access — new modules */}
+      {/* Quick Access — Project Modules */}
       <div className="px-4 mb-4">
         <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Project Modules</p>
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
@@ -258,7 +262,7 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* ── TASKS ─────────────────────────────────────────── */}
+      {/* TASKS */}
       <div className="px-4 mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-[#1A2B4A]">Tasks ({project.tasks.length})</h2>
@@ -280,18 +284,15 @@ export default function ProjectDetailPage() {
                     <p className="text-xs text-gray-400 mt-0.5">
                       {format(parseISO(task.startDate), 'MMM d')} → {format(parseISO(task.endDate), 'MMM d')}
                     </p>
-                    {/* Sub assignment status badge */}
                     <div className="mt-1">
                       {task.assignedTo ? (
                         registeredSub ? (
-                          // ✅ Registered sub
                           <button onClick={e => { e.preventDefault(); openEditSub(registeredSub) }}
                             className="inline-flex items-center gap-1 bg-green-50 border border-green-200 text-green-700 text-xs rounded-full px-2 py-0.5 font-medium hover:bg-green-100 transition">
                             <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"/>
                             {task.assignedTo}
                           </button>
                         ) : (
-                          // ⚠️ Company assigned but not yet registered
                           <Link href={`/projects/${project.id}/contractors`} onClick={e => e.stopPropagation()}
                             className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-full px-2 py-0.5 font-medium hover:bg-amber-100 transition">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"/>
@@ -299,7 +300,6 @@ export default function ProjectDetailPage() {
                           </Link>
                         )
                       ) : (
-                        // 🔴 No sub assigned
                         <Link href={`/projects/${project.id}/contractors`} onClick={e => e.stopPropagation()}
                           className="inline-flex items-center gap-1 bg-red-50 border border-red-100 text-red-500 text-xs rounded-full px-2 py-0.5 font-medium hover:bg-red-100 transition">
                           <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"/>
@@ -329,17 +329,13 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* ── SUBCONTRACTORS MINI PANEL ─────────────────────── */}
+      {/* SUBCONTRACTORS MINI PANEL */}
       <div className="px-4 mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-[#1A2B4A]">👷 Subcontractors</h2>
-          <Link href={`/projects/${project.id}/contractors`}
-            className="text-xs text-blue-600 font-semibold">
-            Manage all →
-          </Link>
+          <Link href={`/projects/${project.id}/contractors`} className="text-xs text-blue-600 font-semibold">Manage all →</Link>
         </div>
 
-        {/* Coverage summary pills */}
         <div className="flex gap-2 mb-3 flex-wrap">
           <div className="flex items-center gap-1.5 bg-green-50 border border-green-100 rounded-full px-3 py-1">
             <span className="w-2 h-2 rounded-full bg-green-500"/>
@@ -422,7 +418,6 @@ export default function ProjectDetailPage() {
           </div>
         )}
 
-        {/* Join link */}
         <div className="mt-3 card p-3 flex items-center gap-2">
           <p className="text-xs text-gray-400 flex-1 truncate">🔗 {joinUrl}</p>
           <button onClick={() => { navigator.clipboard?.writeText(joinUrl) }}
@@ -430,7 +425,7 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* ── PLANOS & ARCHIVOS ─────────────────────────────── */}
+      {/* PLANOS & ARCHIVOS */}
       <div className="px-4 mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-[#1A2B4A]">📐 Planos & Archivos</h2>
@@ -494,9 +489,8 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* ── MODALS ────────────────────────────────────────── */}
+      {/* MODALS */}
 
-      {/* Edit Sub Modal (accessible from task row or subs panel) */}
       {editSub && editForm && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setEditSub(null)}>
           <div className="w-full max-w-[480px] bg-white rounded-t-3xl p-5 pb-8" onClick={e => e.stopPropagation()}>
@@ -549,7 +543,6 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Add Task Modal */}
       {showAddTask && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50">
           <div className="bg-white rounded-t-3xl p-5 w-full max-w-[480px] shadow-2xl pb-8">
@@ -593,7 +586,6 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Delete Task Confirmation */}
       {taskToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
@@ -610,7 +602,6 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Delete Project */}
       {showDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">

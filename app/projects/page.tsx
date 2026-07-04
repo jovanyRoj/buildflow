@@ -48,36 +48,46 @@ export default function ProjectsPage() {
             <p className="text-gray-400 text-sm mb-4">Tap "New" to create your first project</p>
           </div>
         ) : (
-          projects.map(p => (
-            <Link key={p.id} href={`/projects/${p.id}`}>
-              <div className="card p-4 hover:shadow-md transition active:scale-[0.99]">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1 min-w-0 mr-2">
-                    <h3 className="font-semibold text-[#1A2B4A] truncate">{p.name}</h3>
-                    <p className="text-gray-400 text-xs truncate mt-0.5">
-                      <svg className="inline w-3 h-3 mr-1 -mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                      {p.address}
-                    </p>
+          projects.map(p => {
+            const bgColor = p.bgColor || '#1A2B4A'
+            return (
+              <Link key={p.id} href={`/projects/${p.id}`}>
+                <div className="card overflow-hidden hover:shadow-md transition active:scale-[0.99]">
+                  {/* Color accent bar */}
+                  <div className="h-2 w-full" style={{ backgroundColor: bgColor }} />
+                  <div className="p-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0 mr-2">
+                        <h3 className="font-semibold text-[#1A2B4A] truncate">{p.name}</h3>
+                        <p className="text-gray-400 text-xs truncate mt-0.5">
+                          <svg className="inline w-3 h-3 mr-1 -mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                          {p.address}
+                        </p>
+                      </div>
+                      <ProjectStatusBadge status={p.status} />
+                    </div>
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500">Overall progress</span>
+                        <span className="text-xs font-bold text-[#1A2B4A]">{p.progressPercentage}%</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${p.progressPercentage}%`,
+                            backgroundColor: p.status === 'delayed' ? '#ef4444' : p.status === 'completed' ? '#22c55e' : bgColor,
+                          }} />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
+                      <span>Start: {format(parseISO(p.startDate), 'MMM d, yyyy')}</span>
+                      <span>Close: {format(parseISO(p.estimatedEndDate), 'MMM d, yyyy')}</span>
+                    </div>
                   </div>
-                  <ProjectStatusBadge status={p.status} />
                 </div>
-                <div className="mt-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-500">Overall progress</span>
-                    <span className="text-xs font-bold text-[#1A2B4A]">{p.progressPercentage}%</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all duration-500 ${p.status === 'delayed' ? 'bg-red-500' : p.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}`}
-                      style={{ width: `${p.progressPercentage}%` }} />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
-                  <span>Start: {format(parseISO(p.startDate), 'MMM d, yyyy')}</span>
-                  <span>Close: {format(parseISO(p.estimatedEndDate), 'MMM d, yyyy')}</span>
-                </div>
-              </div>
-            </Link>
-          ))
+              </Link>
+            )
+          })
         )}
       </div>
 

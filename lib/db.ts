@@ -57,6 +57,7 @@ export async function saveProject(userId: string, project: Project): Promise<voi
     estimated_end_date: project.estimatedEndDate,
     status: project.status,
     progress_percentage: project.progressPercentage,
+    bg_color: project.bgColor ?? '#1A2B4A',
     updated_at: new Date().toISOString(),
   })
   if (error) console.error('saveProject:', error)
@@ -155,6 +156,7 @@ function dbToProject(p: any, tasks: any[], subs: any[], history: any[], notifs: 
     projectType: p.project_type, startDate: p.start_date,
     estimatedEndDate: p.estimated_end_date, status: p.status,
     progressPercentage: p.progress_percentage,
+    bgColor: p.bg_color ?? '#1A2B4A',
     tasks: tasks.map(dbToTask),
     subcontractors: subs.map(dbToSub),
     history: history.map(dbToHistory),

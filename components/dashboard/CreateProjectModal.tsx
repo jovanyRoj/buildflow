@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { useBuildFlowStore } from '@/lib/store'
+import { PROJECT_COLORS } from '@/lib/types'
 
 export default function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const createProject = useBuildFlowStore(s => s.createProject)
@@ -12,6 +13,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
     address: '',
     projectType: 'singleFamily' as const,
     startDate: format(new Date(), 'yyyy-MM-dd'),
+    bgColor: '#1A2B4A',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -40,6 +42,13 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
         onClick={e => e.stopPropagation()}
       >
         <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5"/>
+
+        {/* Color preview banner */}
+        <div className="w-full h-10 rounded-2xl mb-4 transition-colors duration-200 flex items-center justify-center"
+          style={{ backgroundColor: form.bgColor }}>
+          <span className="text-white/80 text-xs font-medium">{form.name || 'Project Name'}</span>
+        </div>
+
         <h2 className="text-lg font-bold text-[#1A2B4A] mb-5">New Project</h2>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -86,6 +95,31 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
             />
           </Field>
 
+          {/* Project Color */}
+          <Field label="Project Color">
+            <div className="flex gap-2 flex-wrap">
+              {PROJECT_COLORS.map(c => (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, bgColor: c.value }))}
+                  className="relative w-9 h-9 rounded-xl transition-transform hover:scale-110"
+                  style={{ backgroundColor: c.value }}
+                  title={c.label}
+                >
+                  {form.bgColor === c.value && (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <svg width="14" height="14" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">Color shown in project cards and header</p>
+          </Field>
+
           <p className="text-xs text-gray-400 bg-blue-50 rounded-xl p-3 text-center">
             22 tasks will be auto-generated with default durations and dependencies.
           </p>
@@ -97,7 +131,8 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
           <button
             type="submit"
             disabled={saving}
-            className="w-full py-3.5 bg-[#2E7CF6] text-white font-semibold rounded-xl hover:bg-blue-600 transition disabled:opacity-60"
+            className="w-full py-3.5 text-white font-semibold rounded-xl hover:opacity-90 transition disabled:opacity-60"
+            style={{ backgroundColor: form.bgColor }}
           >
             {saving ? 'Creating project...' : 'Create Project'}
           </button>

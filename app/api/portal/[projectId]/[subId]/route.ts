@@ -41,7 +41,27 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       .eq('project_id', projectId)
       .order('uploaded_at', { ascending: false })
 
-    return NextResponse.json({ project, sub, tasks: tasks ?? [], files: files ?? [] })
+    // Fetch existing sub budgets (quoted costs) for this sub
+    const taskIds = (tasks ?? []).map((t: any) => t.id)
+    let subBudgets: Record<string, number> = {}
+    if (taskIds.length > 0) {
+      const { data: budgets } = await supabaseAdmin
+        .from('bf_sub_budgets')
+        .select('task_id, quoted_amount')
+        .eq('sub_id', subId)
+        .in('task_id', taskIds)
+      for (const b of budgets ?? []) {
+        if (b.task_id && b.quoted_amount) subBudgets[b.task_id] = b.quoted_amount
+      }
+    }
+
+    // Merge quoted cost into task objects
+    const enrichedTasks = (tasks ?? []).map((t: any) => ({
+      ...t,
+      sub_quoted_cost: subBudgets[t.id] ?? null,
+    }))
+
+    return NextResponse.json({ project, sub, tasks: enrichedTasks, files: files ?? [] })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
@@ -55,7 +75,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       taskId,
       sub_start_date, sub_end_date, sub_notes,
       sub_crew_size, sub_materials_status, sub_confirmed,
-      status, inspection_status,
+      status, inspection_status, sub_quoted_cost,
     } = await req.json()
     if (!taskId) return NextResponse.json({ error: 'Missing taskId' }, { status: 400 })
 
@@ -90,6 +110,103 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     if (inspection_status    !== undefined) updateData.inspection_status    = inspection_status
 
     await supabaseAdmin.from('bf_tasks').update(updateData).eq('id', taskId)
+
+    // ── Save sub quoted cost + Sofia budget comparison ──────────────────────
+    let budgetAlerts: string[] = []
+    if (sub_quoted_cost !== undefined && sub_quoted_cost !== null && sub_quoted_cost !== '') {
+      const amount = parseFloat(String(sub_quoted_cost))
+      if (!isNaN(amount) && amount > 0) {
+        // Upsert into bf_sub_budgets
+        await supabaseAdmin.from('bf_sub_budgets').upsert(
+          { task_id: taskId, sub_id: subId, project_id: projectId, quoted_amount: amount, updated_at: new Date().toISOString() },
+          { onConflict: 'task_id,sub_id' }
+        )
+
+        // Look up estimated amount from quote items for this task
+        const { data: quoteItems } = await supabaseAdmin
+          .from('bf_quote_items')
+          .select('estimated_amount, phase_id')
+          .eq('task_id', taskId)
+          .eq('project_id', projectId)
+          .limit(5)
+
+        if (quoteItems && quoteItems.length > 0) {
+          const estimatedTotal = quoteItems.reduce((s, i) => s + (i.estimated_amount ?? 0), 0)
+          const variance = amount - estimatedTotal
+          const variancePct = estimatedTotal > 0 ? Math.round((variance / estimatedTotal) * 100) : 0
+          const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+
+          if (variance > 0) {
+            budgetAlerts.push(
+              `💰 Sofia — Budget Alert: ${sub.company} quoted ${fmt(amount)} for "${task.name}". ` +
+              `This is ${fmt(variance)} (+${variancePct}%) OVER the estimate of ${fmt(estimatedTotal)}. Review required.`
+            )
+          } else if (variance < 0) {
+            budgetAlerts.push(
+              `✅ Sofia — Budget: ${sub.company} quoted ${fmt(amount)} for "${task.name}". ` +
+              `${fmt(Math.abs(variance))} (${Math.abs(variancePct)}%) UNDER estimate of ${fmt(estimatedTotal)}. Looking good!`
+            )
+          } else {
+            budgetAlerts.push(
+              `✅ Sofia — Budget: ${sub.company} quoted ${fmt(amount)} for "${task.name}", exactly on estimate.`
+            )
+          }
+        } else {
+          // No quote items linked — just record the cost with no comparison
+          const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+          budgetAlerts.push(
+            `💵 ${sub.company} submitted a quote of ${fmt(amount)} for "${task.name}". (No estimate on file for comparison yet.)`
+          )
+        }
+
+        // Check phase-level budget across all items in the same phase
+        if (quoteItems && quoteItems.length > 0) {
+          const phaseId = quoteItems[0].phase_id
+          if (phaseId) {
+            const { data: phase } = await supabaseAdmin
+              .from('bf_quote_phases')
+              .select('phase_name, budget_amount')
+              .eq('id', phaseId)
+              .maybeSingle()
+
+            if (phase) {
+              // Sum all quote items in this phase to estimate phase total
+              const { data: allPhaseItems } = await supabaseAdmin
+                .from('bf_quote_items')
+                .select('estimated_amount, task_id')
+                .eq('phase_id', phaseId)
+                .eq('project_id', projectId)
+
+              // Also sum all sub quoted costs for tasks in this phase
+              const phaseTaskIds = (allPhaseItems ?? []).map(i => i.task_id).filter(Boolean) as string[]
+              let totalSubQuoted = amount // start with what we just received
+              if (phaseTaskIds.length > 0) {
+                const { data: otherSubBudgets } = await supabaseAdmin
+                  .from('bf_sub_budgets')
+                  .select('quoted_amount, task_id')
+                  .in('task_id', phaseTaskIds)
+                  .eq('project_id', projectId)
+                for (const b of otherSubBudgets ?? []) {
+                  if (b.task_id !== taskId) totalSubQuoted += (b.quoted_amount ?? 0)
+                }
+              }
+
+              const phaseVariance = totalSubQuoted - phase.budget_amount
+              const phasePct = phase.budget_amount > 0 ? Math.round((phaseVariance / phase.budget_amount) * 100) : 0
+              const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+
+              if (Math.abs(phaseVariance) > 500) {
+                const direction = phaseVariance > 0 ? 'OVER' : 'under'
+                budgetAlerts.push(
+                  `🏗️ Phase "${phase.phase_name}": subs quoted ${fmt(totalSubQuoted)} vs ${fmt(phase.budget_amount)} budget — ` +
+                  `${fmt(Math.abs(phaseVariance))} (${Math.abs(phasePct)}%) ${direction}.`
+                )
+              }
+            }
+          }
+        }
+      }
+    }
 
     // ── Read recent builder notes for Sofia context ──
     const { data: recentNotes } = await supabaseAdmin
@@ -131,7 +248,6 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           } else if (inspection_status === 'failed') {
             smsBody = smsInspectionFailed(task.name, projectName)
           } else if (newStatus === 'in_progress' && task.status !== 'in_progress') {
-            // Task started — let downstream know their predecessor just started
             smsBody = `📋 BuildFlow — "${task.name}" has started at ${projectName}. Get ready: "${nextTask.name}" follows. Reply HELP to chat with Sofia.`
           }
 
@@ -141,7 +257,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           }
         }
 
-        // For remaining downstream tasks after a delay — shift their dates if sub_end_date extends past plan
+        // For remaining downstream tasks after a delay — shift their dates
         if (newStatus === 'delayed' && sub_end_date && task.end_date && sub_end_date > task.end_date) {
           const shiftDays = Math.ceil(
             (new Date(sub_end_date).getTime() - new Date(task.end_date).getTime()) / 86400000
@@ -163,7 +279,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     }
 
     // ── Builder notification ──
-    const conflicts: string[] = []
+    const conflicts: string[] = [...budgetAlerts]
     const effectiveEnd = sub_end_date || task.end_date
 
     if (sub_end_date && task.end_date && sub_end_date > task.end_date) {
@@ -198,7 +314,6 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     if (sub_confirmed)                conflicts.push(`✅ ${sub.company} confirmed schedule for "${task.name}".`)
     if (downstreamSMSSent > 0)        conflicts.push(`📱 Sofia notified ${downstreamSMSSent} downstream sub(s) via SMS.`)
 
-    // Include relevant builder notes in the notification
     if (recentNotes && recentNotes.length > 0 && conflicts.length > 0) {
       const latestNote = recentNotes[0]
       conflicts.push(`📋 Latest history: ${latestNote.title} — ${latestNote.body.slice(0, 100)}`)

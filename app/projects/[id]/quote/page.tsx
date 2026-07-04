@@ -36,6 +36,7 @@ export default function QuotePage() {
   const [phases, setPhases] = useState<Phase[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [loadingTemplate, setLoadingTemplate] = useState(false)
   const [showSetup, setShowSetup] = useState(false)
   const [setupForm, setSetupForm] = useState({ total_budget: '', contingency_pct: '10', notes: '' })
   const [showAddPhase, setShowAddPhase] = useState(false)
@@ -69,6 +70,21 @@ export default function QuotePage() {
       }),
     })
     await load(); setSaving(false); setShowSetup(false)
+  }
+
+  async function handleLoadTemplate() {
+    if (!project) return
+    setLoadingTemplate(true)
+    try {
+      await fetch(`/api/builder/projects/${project.id}/quote`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'load_template' }),
+      })
+      await load()
+    } finally {
+      setLoadingTemplate(false)
+    }
   }
 
   async function handleAddPhase(e: React.FormEvent) {
@@ -167,13 +183,51 @@ export default function QuotePage() {
       {loading ? (
         <div className="flex justify-center py-12"><div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"/></div>
       ) : !quote ? (
-        <div className="px-5 pt-6">
-          <div className="bg-white rounded-2xl p-8 text-center shadow-sm">
+        <div className="px-5 pt-6 space-y-3">
+          {/* Option A — blank quote */}
+          <div className="bg-white rounded-2xl p-6 text-center shadow-sm">
             <p className="text-4xl mb-3">📋</p>
             <p className="font-semibold text-gray-800 mb-1">No project quote yet</p>
             <p className="text-sm text-gray-400 mb-4">Set up your pre-construction budget organized by phase. This is your financial map before inviting subs.</p>
-            <button onClick={() => setShowSetup(true)} className="px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl">
-              Create Quote
+            <button onClick={() => setShowSetup(true)} className="w-full py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl">
+              Create Blank Quote
+            </button>
+          </div>
+
+          {/* Option B — house template */}
+          <div className="bg-gradient-to-br from-[#1A2B4A] to-[#2B4A8A] rounded-2xl p-6 shadow-sm text-white">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-3xl">🏠</span>
+              <div>
+                <p className="font-bold text-base">Use House Template</p>
+                <p className="text-xs text-blue-200">18 phases · ~$350K starter estimate</p>
+              </div>
+            </div>
+            <p className="text-xs text-blue-100 mb-4 leading-relaxed">
+              Pre-filled with all phases for a complete single-family home — from Site Work to Landscaping. Each phase includes suggested line items and budget amounts you can customize.
+            </p>
+            <div className="grid grid-cols-2 gap-1.5 mb-4">
+              {['Site Work & Survey','Foundation','Framing','Roofing','Windows & Doors','MEP Rough-In','Insulation','Drywall','Flooring','Cabinets & Countertops','Fixtures & Appliances','Permits'].map(p => (
+                <div key={p} className="flex items-center gap-1.5">
+                  <span className="text-blue-300 text-xs">✓</span>
+                  <span className="text-xs text-blue-100">{p}</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-1.5">
+                <span className="text-blue-300 text-xs">+</span>
+                <span className="text-xs text-blue-100">6 more phases</span>
+              </div>
+            </div>
+            <button
+              onClick={handleLoadTemplate}
+              disabled={loadingTemplate}
+              className="w-full py-3 bg-white text-[#1A2B4A] text-sm font-bold rounded-xl disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {loadingTemplate ? (
+                <><div className="w-4 h-4 border-2 border-[#1A2B4A] border-t-transparent rounded-full animate-spin"/> Building template...</>
+              ) : (
+                '🏠 Load House Template'
+              )}
             </button>
           </div>
         </div>
@@ -209,17 +263,31 @@ export default function QuotePage() {
             <div className="mt-3">
               <div className="w-full bg-gray-100 rounded-full h-2">
                 <div className={`h-2 rounded-full ${totalQuoted > quote.total_budget ? 'bg-red-500' : 'bg-blue-500'}`}
-                  style={{ width: `${Math.min(100, (totalQuoted / quote.total_budget) * 100)}%` }}/>
+                  style={{ width: `${Math.min(100, (totalQuoted / (quote.total_budget || 1)) * 100)}%` }}/>
               </div>
-              <p className="text-xs text-gray-400 mt-1 text-right">{Math.round((totalQuoted / quote.total_budget) * 100)}% of budget quoted</p>
+              <p className="text-xs text-gray-400 mt-1 text-right">{Math.round((totalQuoted / (quote.total_budget || 1)) * 100)}% of budget quoted</p>
             </div>
           </div>
 
-          {/* Default phases if none */}
+          {/* Empty phases — offer template */}
           {phases.length === 0 && (
-            <div className="bg-blue-50 rounded-2xl p-4 text-center">
-              <p className="text-sm text-blue-700 font-medium mb-2">Add construction phases to your quote</p>
-              <p className="text-xs text-blue-500">e.g. Foundation, Framing, MEP Rough, Envelope, Finishes</p>
+            <div className="bg-gradient-to-br from-[#1A2B4A] to-[#2B4A8A] rounded-2xl p-5 shadow-sm text-white">
+              <p className="font-bold text-sm mb-1">🏠 Start with the House Template</p>
+              <p className="text-xs text-blue-200 mb-4 leading-relaxed">
+                Instantly load 18 construction phases with line items and suggested budgets for a complete single-family home. You can customize everything.
+              </p>
+              <button
+                onClick={handleLoadTemplate}
+                disabled={loadingTemplate}
+                className="w-full py-2.5 bg-white text-[#1A2B4A] text-sm font-bold rounded-xl disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {loadingTemplate ? (
+                  <><div className="w-4 h-4 border-2 border-[#1A2B4A] border-t-transparent rounded-full animate-spin"/> Building template...</>
+                ) : (
+                  '🏠 Load House Template'
+                )}
+              </button>
+              <p className="text-xs text-blue-300 text-center mt-2">or use "+ Phase" above to add manually</p>
             </div>
           )}
 

@@ -70,6 +70,7 @@ export interface Project {
   actualEndDate?: string
   status: ProjectStatus
   progressPercentage: number
+  bgColor?: string             // project theme color (hex), default '#1A2B4A'
   tasks: Task[]
   subcontractors: Subcontractor[]
   history: HistoryEntry[]
@@ -77,3 +78,15 @@ export interface Project {
   createdAt: string
   updatedAt: string
 }
+
+// Preset colors for project backgrounds
+export const PROJECT_COLORS = [
+  { value: '#1A2B4A', label: 'Navy',   preview: 'bg-[#1A2B4A]' },
+  { value: '#1A4A2B', label: 'Forest', preview: 'bg-[#1A4A2B]' },
+  { value: '#4A1A1A', label: 'Brick',  preview: 'bg-[#4A1A1A]' },
+  { value: '#2B1A4A', label: 'Purple', preview: 'bg-[#2B1A4A]' },
+  { value: '#1A3D4A', label: 'Teal',   preview: 'bg-[#1A3D4A]' },
+  { value: '#4A2B1A', label: 'Walnut', preview: 'bg-[#4A2B1A]' },
+  { value: '#4A1A3A', label: 'Rose',   preview: 'bg-[#4A1A3A]' },
+  { value: '#1A3A1A', label: 'Green',  preview: 'bg-[#1A3A1A]' },
+]
