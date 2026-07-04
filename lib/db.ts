@@ -1,6 +1,7 @@
 'use client'
 import { supabase } from './supabase'
 import { Project, Task, HistoryEntry, AppNotification, Subcontractor } from './types'
+import { calculateProgress } from './scheduleEngine'
 
 // ─── USER ────────────────────────────────────────────────────────────────────
 
@@ -151,13 +152,16 @@ function taskToDb(t: Task) {
 }
 
 function dbToProject(p: any, tasks: any[], subs: any[], history: any[], notifs: any[]): Project {
+  // Map tasks first so we can recalculate progress from live statuses
+  // (prevents stale 100% when sub portal updates task status independently)
+  const mappedTasks = tasks.map(dbToTask)
   return {
     id: p.id, name: p.name, address: p.address,
     projectType: p.project_type, startDate: p.start_date,
     estimatedEndDate: p.estimated_end_date, status: p.status,
-    progressPercentage: p.progress_percentage,
+    progressPercentage: calculateProgress(mappedTasks),   // ← live recalculation
     bgColor: p.bg_color ?? '#1A2B4A',
-    tasks: tasks.map(dbToTask),
+    tasks: mappedTasks,
     subcontractors: subs.map(dbToSub),
     history: history.map(dbToHistory),
     notifications: notifs.map(dbToNotif),

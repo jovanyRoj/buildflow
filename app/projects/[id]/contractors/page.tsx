@@ -14,6 +14,10 @@ type Sub = {
   trade: string; email: string; notes: string
 }
 
+type CrossSub = Sub & {
+  projectId: string; projectName: string; alreadyHere: boolean
+}
+
 const TRADE_COLORS: Record<string, string> = {
   electrical: 'bg-yellow-100 text-yellow-800', plumbing: 'bg-blue-100 text-blue-800',
   hvac: 'bg-cyan-100 text-cyan-800',           framing:  'bg-orange-100 text-orange-800',
@@ -30,7 +34,7 @@ function Spinner() {
 
 export default function ContractorsPage() {
   const { id } = useParams() as { id: string }
-  const { getProject, refreshProjects, updateTask } = useBuildFlowStore()
+  const { getProject, refreshProjects, updateTask, currentUser } = useBuildFlowStore()
   const { ready } = useAuthGuard()
   const project = getProject(id)
 
@@ -43,10 +47,18 @@ export default function ContractorsPage() {
   const [editForm, setEditForm] = useState<Sub | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+
   // Assign sub to task
   const [assignTask, setAssignTask] = useState<any | null>(null)
   const [assignSub, setAssignSub]   = useState('')
   const [assigning, setAssigning]   = useState(false)
+
+  // Import sub from another project
+  const [showImport, setShowImport]         = useState(false)
+  const [crossSubs, setCrossSubs]           = useState<CrossSub[]>([])
+  const [loadingCross, setLoadingCross]     = useState(false)
+  const [importingSub, setImportingSub]     = useState<string | null>(null)
+  const [importedSubs, setImportedSubs]     = useState<Set<string>>(new Set())
 
   const joinUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/join/${id}`
@@ -103,7 +115,7 @@ export default function ContractorsPage() {
   }
 
   async function handleDelete(subId: string) {
-    if (!confirm('Remove this subcontractor?')) return
+    if (!confirm('Remove this subcontractor from this project?')) return
     setDeleting(subId)
     await fetch(`/api/join/${id}?subId=${subId}`, { method: 'DELETE' })
     await refreshProjects()
@@ -119,6 +131,43 @@ export default function ContractorsPage() {
     await new Promise(r => setTimeout(r, 800))
     setAssigning(false); setAssignTask(null); setAssignSub('')
   }
+
+  // ── Import from another project ──────────────────────────────────────────
+
+  async function openImportModal() {
+    if (!currentUser) return
+    setShowImport(true)
+    setLoadingCross(true)
+    const res = await fetch(`/api/builder/subs?userId=${currentUser.id}&excludeProjectId=${id}`)
+    const data = await res.json()
+    setCrossSubs(data.subs ?? [])
+    setLoadingCross(false)
+  }
+
+  async function handleImportSub(sub: CrossSub) {
+    setImportingSub(sub.id)
+    // Re-use the public join endpoint — creates sub, auto-assigns matching tasks
+    await fetch(`/api/join/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company: sub.company,
+        contactName: sub.name,
+        phone: sub.phone,
+        email: sub.email,
+        trade: sub.trade,
+      }),
+    })
+    setImportedSubs(prev => new Set([...prev, sub.id]))
+    setImportingSub(null)
+    await refreshProjects()
+  }
+
+  // Group cross-subs by project name for the modal
+  const crossSubsByProject = crossSubs.reduce<Record<string, CrossSub[]>>((acc, s) => {
+    ;(acc[s.projectName] ??= []).push(s)
+    return acc
+  }, {})
 
   return (
     <div className="pb-24">
@@ -219,22 +268,23 @@ export default function ContractorsPage() {
                           <Link href={`/portal/${id}/${c.id}`} target="_blank"
                             className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 transition text-blue-600" title="View portal">
                             <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                              <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
                             </svg>
                           </Link>
                           <button onClick={() => openEdit(c)}
                             className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 transition" title="Edit">
                             <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                             </svg>
                           </button>
                           <button onClick={() => handleDelete(c.id)} disabled={deleting === c.id}
-                            className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 transition text-red-500" title="Delete">
-                            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6m4-6v6"/><path d="M9 6V4h6v2"/>
-                            </svg>
+                            className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 transition text-red-500 disabled:opacity-50" title="Remove from project">
+                            {deleting === c.id
+                              ? <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin"/>
+                              : <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6m4-6v6"/><path d="M9 6V4h6v2"/>
+                                </svg>
+                            }
                           </button>
                         </div>
                       </div>
@@ -282,6 +332,17 @@ export default function ContractorsPage() {
                 })}
               </div>
             )}
+
+            {/* Import from another project */}
+            <button
+              onClick={openImportModal}
+              className="w-full mt-3 py-3 rounded-2xl border-2 border-dashed border-indigo-200 text-indigo-600 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-indigo-50 transition active:scale-[0.98]"
+            >
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Import sub from another project
+            </button>
           </div>
 
           {/* Trade coverage */}
@@ -321,7 +382,7 @@ export default function ContractorsPage() {
 
           {/* Summary pills */}
           {(() => {
-            const registered = project.tasks.filter(t => getTaskSub(t))
+            const registered  = project.tasks.filter(t => getTaskSub(t))
             const awaitingReg = project.tasks.filter(t => t.assignedTo && !getTaskSub(t))
             const unassigned  = project.tasks.filter(t => !t.assignedTo)
             return (
@@ -380,7 +441,6 @@ export default function ContractorsPage() {
                     {/* Sub assignment */}
                     <div className="mt-1.5">
                       {registeredSub ? (
-                        // ✅ Registered sub — show company + edit button
                         <div className="flex items-center gap-2">
                           <span className="text-xs bg-green-50 border border-green-200 text-green-700 rounded-full px-2 py-0.5 font-medium">
                             ✓ {registeredSub.company}
@@ -391,7 +451,6 @@ export default function ContractorsPage() {
                             className="text-xs text-blue-500 hover:text-blue-700 transition">Portal ↗</Link>
                         </div>
                       ) : task.assignedTo ? (
-                        // ⚠️ Company assigned but not registered
                         <div className="flex items-center gap-2">
                           <span className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded-full px-2 py-0.5 font-medium">
                             ⏳ {task.assignedTo} · not registered
@@ -400,7 +459,6 @@ export default function ContractorsPage() {
                             className="text-xs text-blue-600 hover:text-blue-700 font-medium transition">Reassign</button>
                         </div>
                       ) : (
-                        // 🔴 No sub
                         <button onClick={() => { setAssignTask(task); setAssignSub('') }}
                           className="inline-flex items-center gap-1 text-xs bg-red-50 border border-red-100 text-red-600 rounded-full px-2 py-0.5 font-medium hover:bg-red-100 transition">
                           + Assign sub
@@ -517,6 +575,85 @@ export default function ContractorsPage() {
               className="w-full py-3.5 rounded-2xl bg-[#2E7CF6] text-white font-bold text-sm disabled:opacity-50">
               {assigning ? 'Assigning…' : '✓ Assign to Task'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Import Sub from Another Project Modal ── */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setShowImport(false)}>
+          <div className="w-full max-w-[480px] bg-white rounded-t-3xl p-5 pb-8 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
+              <div>
+                <h3 className="font-bold text-[#1A2B4A]">Import Subcontractor</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Pick a sub from another project</p>
+              </div>
+              <button onClick={() => setShowImport(false)} className="text-gray-400 hover:text-gray-600">
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1">
+              {loadingCross ? (
+                <div className="flex justify-center py-10">
+                  <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
+                </div>
+              ) : crossSubs.length === 0 ? (
+                <div className="text-center py-10 text-gray-400">
+                  <p className="text-2xl mb-2">🤷</p>
+                  <p className="text-sm">No subs found in other projects</p>
+                  <p className="text-xs mt-1">Create more projects or invite subs first</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {Object.entries(crossSubsByProject).map(([projectName, subs]) => (
+                    <div key={projectName}>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">
+                        📁 {projectName}
+                      </p>
+                      <div className="flex flex-col gap-2">
+                        {subs.map(sub => {
+                          const alreadyImported = importedSubs.has(sub.id) || sub.alreadyHere
+                          const isImporting     = importingSub === sub.id
+                          const tradeColor      = TRADE_COLORS[sub.trade] ?? 'bg-gray-100 text-gray-700'
+                          return (
+                            <div key={sub.id}
+                              className={`flex items-center gap-3 p-3 rounded-xl border transition ${
+                                alreadyImported ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-white hover:border-indigo-200'
+                              }`}>
+                              <div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                <span className="text-sm font-bold text-indigo-700">{sub.company?.charAt(0)?.toUpperCase() ?? '?'}</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-[#1A2B4A] truncate">{sub.company || sub.name}</p>
+                                <p className="text-xs text-gray-400">{sub.name} · {sub.phone}</p>
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${tradeColor}`}>
+                                  {getTradeLabel(sub.trade).split(' /')[0]}
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => !alreadyImported && handleImportSub(sub)}
+                                disabled={alreadyImported || isImporting}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex-shrink-0 ${
+                                  alreadyImported
+                                    ? 'bg-green-100 text-green-700 cursor-default'
+                                    : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 disabled:opacity-60'
+                                }`}
+                              >
+                                {isImporting
+                                  ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>
+                                  : alreadyImported ? '✓ Added' : 'Import'
+                                }
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
