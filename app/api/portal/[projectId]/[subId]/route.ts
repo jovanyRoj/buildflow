@@ -61,7 +61,20 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       sub_quoted_cost: subBudgets[t.id] ?? null,
     }))
 
-    return NextResponse.json({ project, sub, tasks: enrichedTasks, files: files ?? [] })
+    // Fetch portal messages
+    let portalMessages: any[] = []
+    try {
+      const { data: msgs } = await supabaseAdmin
+        .from('bf_portal_messages')
+        .select('id, sender, content, created_at')
+        .eq('project_id', projectId)
+        .eq('sub_id', subId)
+        .order('created_at', { ascending: true })
+        .limit(100)
+      portalMessages = msgs ?? []
+    } catch {}
+
+    return NextResponse.json({ project, sub, tasks: enrichedTasks, files: files ?? [], messages: portalMessages })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
@@ -254,6 +267,17 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           if (smsBody) {
             await sendSMS(nextPhone, smsBody)
             downstreamSMSSent++
+            // Mirror SMS to sub's portal messages
+            try {
+              const { data: nextSub } = await supabaseAdmin
+                .from('bf_subcontractors').select('id')
+                .eq('project_id', projectId).eq('phone', nextPhone).maybeSingle()
+              if (nextSub) {
+                await supabaseAdmin.from('bf_portal_messages').insert({
+                  project_id: projectId, sub_id: nextSub.id, sender: 'sofia', content: smsBody,
+                })
+              }
+            } catch {}
           }
         }
 
@@ -268,10 +292,20 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
             const newEnd   = shiftDate(dt.end_date,   shiftDays)
             await supabaseAdmin.from('bf_tasks').update({ start_date: newStart, end_date: newEnd }).eq('id', dt.id)
             if (dt.subcontractor_phone) {
-              await sendSMS(dt.subcontractor_phone,
-                `📅 BuildFlow — Schedule update at ${projectName}: "${dt.name}" moved to ${newStart}. Previous task "${task.name}" delayed. Reply HELP for Sofia.`
-              )
+              const shiftMsg = `📅 BuildFlow — Schedule update at ${projectName}: "${dt.name}" moved to ${newStart}. Previous task "${task.name}" delayed. Reply HELP for Sofia.`
+              await sendSMS(dt.subcontractor_phone, shiftMsg)
               downstreamSMSSent++
+              // Mirror SMS to sub's portal messages
+              try {
+                const { data: shiftSub } = await supabaseAdmin
+                  .from('bf_subcontractors').select('id')
+                  .eq('project_id', projectId).eq('phone', dt.subcontractor_phone).maybeSingle()
+                if (shiftSub) {
+                  await supabaseAdmin.from('bf_portal_messages').insert({
+                    project_id: projectId, sub_id: shiftSub.id, sender: 'sofia', content: shiftMsg,
+                  })
+                }
+              } catch {}
             }
           }
         }
@@ -330,6 +364,49 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     }
 
     return NextResponse.json({ ok: true, conflicts, downstreamSMSSent })
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
+}
+
+// ── POST ─────────────────────────────────────────────────────────────────────
+export async function POST(req: NextRequest, { params }: Ctx) {
+  const { projectId, subId } = await params
+  try {
+    const { action, content } = await req.json()
+
+    const { data: sub } = await supabaseAdmin
+      .from('bf_subcontractors')
+      .select('id, company, name, phone')
+      .eq('id', subId).eq('project_id', projectId).maybeSingle()
+    if (!sub) return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+
+    if (action === 'send_message') {
+      if (!content?.trim()) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
+
+      const { data: msg } = await supabaseAdmin
+        .from('bf_portal_messages')
+        .insert({ project_id: projectId, sub_id: subId, sender: 'sub', content: content.trim() })
+        .select('id, sender, content, created_at').single()
+
+      const sofiaText = `Got it, ${sub.company}! Your message has been forwarded to the builder. If this involves a schedule change or delay, please also update your task status in the Tasks tab. — 🤖 Sofia`
+      const { data: sofiaMsg } = await supabaseAdmin
+        .from('bf_portal_messages')
+        .insert({ project_id: projectId, sub_id: subId, sender: 'sofia', content: sofiaText })
+        .select('id, sender, content, created_at').single()
+
+      await supabaseAdmin.from('bf_notifications').insert({
+        project_id: projectId,
+        type: 'subcontractor',
+        title: `💬 ${sub.company} sent a portal message`,
+        body: content.trim(),
+        is_read: false,
+      })
+
+      return NextResponse.json({ ok: true, message: msg, sofiaReply: sofiaMsg })
+    }
+
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
