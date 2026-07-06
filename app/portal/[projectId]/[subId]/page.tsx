@@ -43,7 +43,7 @@ interface CommitForm {
   sub_crew_size: string; sub_materials_status: string; sub_confirmed: boolean
   sub_quoted_cost: string
 }
-interface DateEdit { sub_start_date: string; sub_end_date: string }
+interface DateEdit { sub_start_date: string; sub_end_date: string; sub_notes?: string }
 interface SofiaChat { message: string; sending: boolean; reply: string | null; downstreamNotified: number; downstreamAction: string }
 
 function formatBytes(b: number) {
@@ -115,7 +115,7 @@ export default function GuestPortal() {
         setMessages(d.messages ?? [])
         const edits: Record<string, DateEdit> = {}
         for (const t of d.tasks ?? []) {
-          edits[t.id] = { sub_start_date: t.sub_start_date ?? '', sub_end_date: t.sub_end_date ?? '' }
+          edits[t.id] = { sub_start_date: t.sub_start_date ?? '', sub_end_date: t.sub_end_date ?? '', sub_notes: t.sub_notes ?? '' }
         }
         setDateEdits(edits)
       })
@@ -239,10 +239,10 @@ export default function GuestPortal() {
     try {
       await fetch(`/api/portal/${projectId}/${subId}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, sub_start_date: edit.sub_start_date || null, sub_end_date: edit.sub_end_date || null }),
+        body: JSON.stringify({ taskId, sub_start_date: edit.sub_start_date || null, sub_end_date: edit.sub_end_date || null, sub_notes: edit.sub_notes || null }),
       })
       setData((d: any) => ({ ...d, tasks: d.tasks.map((t: any) => t.id === taskId
-        ? { ...t, sub_start_date: edit.sub_start_date || null, sub_end_date: edit.sub_end_date || null } : t) }))
+        ? { ...t, sub_start_date: edit.sub_start_date || null, sub_end_date: edit.sub_end_date || null, sub_notes: edit.sub_notes || null } : t) }))
       setDateSaved(taskId); setTimeout(() => setDateSaved(null), 2500)
     } finally { setDateSaving(null) }
   }
@@ -573,13 +573,44 @@ export default function GuestPortal() {
                       </div>
                     )}
 
-                    <div className="flex gap-2 mt-2">
-                      <button onClick={() => openCommit(task)}
-                        className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition active:scale-[0.97] ${
-                          saved === task.id ? 'bg-green-500 text-white' :
-                          hasCommitment ? 'bg-[#1A2B4A] text-white' : 'bg-[#2E7CF6] text-white'
+                    {/* ── Inline date + notes editing ────────────────────── */}
+                    <div className="border-t border-gray-100 mt-3 pt-3">
+                      <p className="text-xs font-semibold text-gray-400 mb-2">📅 MY WORK DATES</p>
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div>
+                          <p className="text-xs text-gray-400 mb-1">My Start</p>
+                          <input type="date"
+                            className="w-full text-xs border border-gray-200 rounded-xl px-2 py-1.5 text-[#1A2B4A] font-semibold focus:outline-none focus:border-blue-400"
+                            value={dateEdits[task.id]?.sub_start_date ?? ''}
+                            onChange={e => setDateEdits(d => ({ ...d, [task.id]: { ...d[task.id], sub_start_date: e.target.value } }))}/>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-400 mb-1">My End</p>
+                          <input type="date"
+                            className="w-full text-xs border border-gray-200 rounded-xl px-2 py-1.5 text-[#1A2B4A] font-semibold focus:outline-none focus:border-blue-400"
+                            value={dateEdits[task.id]?.sub_end_date ?? ''}
+                            onChange={e => setDateEdits(d => ({ ...d, [task.id]: { ...d[task.id], sub_end_date: e.target.value } }))}/>
+                        </div>
+                      </div>
+                      <textarea rows={2}
+                        placeholder="Note for the builder (optional)…"
+                        className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 text-[#1A2B4A] focus:outline-none focus:border-blue-400 resize-none mb-2"
+                        value={dateEdits[task.id]?.sub_notes ?? ''}
+                        onChange={e => setDateEdits(d => ({ ...d, [task.id]: { ...d[task.id], sub_notes: e.target.value } }))}/>
+                      <button
+                        disabled={dateSaving === task.id}
+                        onClick={() => saveDateEdit(task.id)}
+                        className={`w-full py-2.5 rounded-xl text-xs font-bold transition active:scale-[0.97] ${
+                          dateSaved === task.id ? 'bg-green-500 text-white' : 'bg-[#2E7CF6] text-white'
                         }`}>
-                        {saved === task.id ? '✅ Saved!' : hasCommitment ? '✏️ Edit Commitment' : '📅 Set My Schedule'}
+                        {dateSaving === task.id ? 'Saving…' : dateSaved === task.id ? '✅ Saved!' : '💾 Save dates & note'}
+                      </button>
+                    </div>
+
+                    <div className="flex gap-2 mt-3">
+                      <button onClick={() => openCommit(task)}
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-gray-200 text-gray-500 hover:border-gray-300 flex items-center justify-center gap-1 transition active:scale-[0.97]">
+                        ⚙️ More options
                       </button>
                       <button onClick={() => setSofiaOpen(isSofiaOpen ? null : task.id)}
                         className={`px-3 py-2.5 rounded-xl text-xs font-bold border-2 transition flex items-center gap-1 ${
