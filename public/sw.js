@@ -1,7 +1,7 @@
 // BuildFlow Service Worker v1.0
 // Handles offline caching and background sync
 
-const CACHE_NAME = 'buildflow-v1'
+const CACHE_NAME = 'buildflow-v5'
 const STATIC_ASSETS = [
   '/',
   '/dashboard',

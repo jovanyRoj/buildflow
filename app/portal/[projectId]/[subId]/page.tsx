@@ -141,12 +141,15 @@ export default function GuestPortal() {
     if (!data || authAttempts >= 3) return
     const entered = nameInput.trim().toLowerCase()
     const sub = data.sub
-    const matchName    = (sub.name    ?? '').trim().toLowerCase() === entered
-    const matchCompany = (sub.company ?? '').trim().toLowerCase() === entered
+    const normName    = (sub.name    ?? '').trim().toLowerCase()
+    const normCompany = (sub.company ?? '').trim().toLowerCase()
+    // Flexible: exact, partial, or first-word match for name/company
+    const matchName    = normName.includes(entered) || entered.includes(normName.split(' ')[0])
+    const matchCompany = normCompany.includes(entered) || entered.includes(normCompany.split(' ')[0])
     const cleanPhone   = (sub.phone   ?? '').replace(/\D/g, '')
     const cleanEntered = nameInput.trim().replace(/\D/g, '')
     const matchPhone   = cleanEntered.length >= 4 && cleanPhone.endsWith(cleanEntered)
-    if (matchName || matchCompany || matchPhone) {
+    if (entered.length >= 2 && (matchName || matchCompany || matchPhone)) {
       try { sessionStorage.setItem(`portal_auth_${subId}`, '1') } catch {}
       setAuthed(true)
     } else {
