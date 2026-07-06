@@ -15,6 +15,15 @@ export interface SofiaContext {
   projectName: string
   projectAddress: string
   userId: string        // builder's user id
+  // Sub portal data (what the sub committed to via their portal)
+  subCommittedStart?: string | null
+  subCommittedEnd?: string | null
+  subNotes?: string | null
+  subCrewSize?: number | null
+  subMaterialsStatus?: string | null
+  subConfirmed?: boolean
+  subQuotedCost?: number | null
+  recentPortalMessages?: { sender: string; content: string; created_at: string }[]
 }
 
 export interface SofiaResponse {
@@ -112,25 +121,50 @@ export async function askSofia(
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildPrompt(message: string, ctx: SofiaContext): string {
-  return `SUBCONTRACTOR INFO:
-Name: ${ctx.subName || 'Unknown'}
-Phone: ${ctx.subPhone}
+  const portalLines: string[] = []
+  if (ctx.subCommittedStart || ctx.subCommittedEnd)
+    portalLines.push(`Committed: ${ctx.subCommittedStart ?? '—'} → ${ctx.subCommittedEnd ?? '—'}`)
+  if (ctx.subCrewSize)        portalLines.push(`Crew: ${ctx.subCrewSize} workers`)
+  if (ctx.subMaterialsStatus) portalLines.push(`Materials: ${ctx.subMaterialsStatus}`)
+  if (ctx.subConfirmed)       portalLines.push('Commitment: CONFIRMED by sub')
+  if (ctx.subQuotedCost)      portalLines.push(`Quoted: $${Number(ctx.subQuotedCost).toLocaleString()}`)
+  if (ctx.subNotes)           portalLines.push(`Sub note: "${ctx.subNotes}"`)
 
-THEIR CURRENT TASK:
-Task: ${ctx.taskName}
-Status: ${ctx.taskStatus}
-Schedule: ${ctx.taskStartDate} → ${ctx.taskEndDate}
-${ctx.taskNotes ? `Notes: ${ctx.taskNotes}` : ''}
-${ctx.inspectionRequired ? 'Requires Oklahoma building inspection.' : ''}
+  const msgLines: string[] = []
+  if (ctx.recentPortalMessages?.length) {
+    msgLines.push('Recent portal messages:')
+    for (const m of ctx.recentPortalMessages.slice(-5))
+      msgLines.push(`  [${m.sender.toUpperCase()}]: ${m.content}`)
+  }
 
-PROJECT:
-${ctx.projectName}
-${ctx.projectAddress}
+  const portalSection = portalLines.length
+    ? '\n\nPORTAL COMMITMENTS (entered by sub via portal):\n' + portalLines.join('\n')
+    : ''
+  const msgSection = msgLines.length ? '\n\n' + msgLines.join('\n') : ''
 
-SUBCONTRACTOR MESSAGE:
-"${message}"
-
-Respond as Sofia.`
+  return [
+    `SUBCONTRACTOR INFO:`,
+    `Name: ${ctx.subName || 'Unknown'}`,
+    `Phone: ${ctx.subPhone}`,
+    '',
+    `THEIR CURRENT TASK:`,
+    `Task: ${ctx.taskName}`,
+    `Status: ${ctx.taskStatus}`,
+    `Builder plan: ${ctx.taskStartDate} → ${ctx.taskEndDate}`,
+    ctx.taskNotes ? `Builder notes: ${ctx.taskNotes}` : '',
+    ctx.inspectionRequired ? 'Requires Oklahoma building inspection.' : '',
+    portalSection,
+    msgSection,
+    '',
+    `PROJECT:`,
+    `${ctx.projectName}`,
+    `${ctx.projectAddress}`,
+    '',
+    `SUBCONTRACTOR MESSAGE:`,
+    `"${message}"`,
+    '',
+    'Respond as Sofia.',
+  ].join('\n')
 }
 
 function fallbackResponse(message: string): SofiaResponse {
