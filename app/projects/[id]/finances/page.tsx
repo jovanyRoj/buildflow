@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { useAuthGuard } from '@/lib/useAuthGuard'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
@@ -56,7 +56,7 @@ interface SubBudget {
 export default function FinancesPage() {
   const params = useParams()
   const router = useRouter()
-  const { getProject } = useBuildFlowStore()
+  const { getProject } = useBrivoxStore()
   const { ready } = useAuthGuard()
   const project = getProject(params.id as string)
 

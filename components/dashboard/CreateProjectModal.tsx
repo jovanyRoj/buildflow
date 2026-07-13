@@ -2,11 +2,11 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { PROJECT_COLORS } from '@/lib/types'
 
 export default function CreateProjectModal({ onClose }: { onClose: () => void }) {
-  const createProject = useBuildFlowStore(s => s.createProject)
+  const createProject = useBrivoxStore(s => s.createProject)
   const router = useRouter()
   const [form, setForm] = useState({
     name: '',

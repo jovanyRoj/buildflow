@@ -73,7 +73,7 @@ export default function SubcontractorPortal() {
 
   if (loading) return (
     <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center gap-4">
-      <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-14 w-14 rounded-2xl shadow-xl" />
+      <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-14 w-14 rounded-2xl shadow-xl" />
       <div className="w-7 h-7 border-2 border-white border-t-transparent rounded-full animate-spin"/>
     </div>
   )
@@ -83,7 +83,7 @@ export default function SubcontractorPortal() {
       <div className="text-5xl">🔗</div>
       <h2 className="font-bold text-[#1A2B4A] text-lg">Link not found</h2>
       <p className="text-gray-500 text-sm">This task link may have expired or is invalid.<br/>Contact your builder for a new link.</p>
-      <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-10 w-10 rounded-xl mt-4 opacity-40"/>
+      <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-10 w-10 rounded-xl mt-4 opacity-40"/>
     </div>
   )
 
@@ -92,8 +92,8 @@ export default function SubcontractorPortal() {
       {/* Header */}
       <div className="bg-[#1A2B4A] px-5 pt-12 pb-6">
         <div className="flex items-center gap-2 mb-4">
-          <img src="/BuildFlowLogo.png" alt="" className="h-7 w-7 rounded-lg"/>
-          <span className="text-white/50 text-xs font-medium">BuildFlow — Subcontractor Portal</span>
+          <img src="/brivox-logo-dark.svg" alt="" className="h-7 w-7 rounded-lg"/>
+          <span className="text-white/50 text-xs font-medium">Brivox — Subcontractor Portal</span>
         </div>
         <h1 className="text-white text-xl font-bold leading-tight">{task.name}</h1>
         <p className="text-white/60 text-sm mt-1">{project.name}</p>
@@ -236,7 +236,7 @@ export default function SubcontractorPortal() {
         )}
 
         <p className="text-center text-xs text-gray-400 pb-2">
-          Powered by BuildFlow · Oklahoma Construction Management
+          Powered by Brivox · Oklahoma Construction Management
         </p>
       </div>
     </div>

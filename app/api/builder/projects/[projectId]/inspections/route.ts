@@ -54,7 +54,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     if (task?.sub_phone) {
       await sendSMS(
         task.sub_phone,
-        `BuildFlow ❌ INSPECTION FAILED\nProject: ${project?.name ?? projectId}\nTask: ${task.name}\n${body.correction_required ? `Fix required: ${body.correction_required}` : ''}\nReinspection: ${body.reinspection_date ?? 'TBD'}`
+        `Brivox ❌ INSPECTION FAILED\nProject: ${project?.name ?? projectId}\nTask: ${task.name}\n${body.correction_required ? `Fix required: ${body.correction_required}` : ''}\nReinspection: ${body.reinspection_date ?? 'TBD'}`
       )
     }
   }

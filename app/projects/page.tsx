@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { ProjectStatusBadge } from '@/components/ui/StatusBadge'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
@@ -18,7 +18,7 @@ function Spinner() {
 }
 
 export default function ProjectsPage() {
-  const { projects } = useBuildFlowStore()
+  const { projects } = useBrivoxStore()
   const { ready } = useAuthGuard()
   const [showCreate, setShowCreate] = useState(false)
 

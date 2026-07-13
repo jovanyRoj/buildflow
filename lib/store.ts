@@ -11,7 +11,7 @@ import {
   markNotifRead, markAllNotifsRead, saveSubcontractor,
 } from './db'
 
-interface BuildFlowStore {
+interface BrivoxStore {
   projects: Project[]
   currentUser: Session | null
   loading: boolean
@@ -40,7 +40,7 @@ interface BuildFlowStore {
   getUnreadCount: () => number
 }
 
-export const useBuildFlowStore = create<BuildFlowStore>()((set, get) => ({
+export const useBrivoxStore = create<BrivoxStore>()((set, get) => ({
   projects: [],
   currentUser: null,
   loading: true,

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { ProjectStatusBadge } from '@/components/ui/StatusBadge'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
@@ -49,7 +49,7 @@ function formatBytes(b: number) {
 export default function ProjectDetailPage() {
   const params   = useParams()
   const router   = useRouter()
-  const { getProject, deleteProject, addTask, deleteTask, updateTask, refreshProjects } = useBuildFlowStore()
+  const { getProject, deleteProject, addTask, deleteTask, updateTask, refreshProjects } = useBrivoxStore()
   const { ready } = useAuthGuard()
   const project  = getProject(params.id as string)
   const contractors: Sub[] = (project as any)?.subcontractors ?? []

@@ -1,24 +1,39 @@
 @import "tailwindcss";
 
+/* ── Brivox Design System ── */
 :root {
-  --brand-dark: #1A2B4A;
-  --brand-blue: #2E7CF6;
+  /* Brand palette */
+  --color-navy:       #1A2B4A;   /* Deep Navy — primary */
+  --color-navy-mid:   #1E3A6E;   /* Navy mid */
+  --color-blue:       #2E7CF6;   /* Electric Blue — secondary */
+  --color-blue-light: #EBF3FF;   /* Blue wash */
+  --color-orange:     #F97316;   /* Construction Orange — accent */
+  --color-orange-light: #FFF3E8; /* Orange wash */
+  --color-surface:    #F4F6F9;   /* App background */
+  --color-border:     #E5E7EB;   /* Default border */
+  --color-muted:      #6B7280;   /* Secondary text */
+
+  /* Semantic aliases */
+  --brand-dark: var(--color-navy);
+  --brand-blue: var(--color-blue);
+  --brand-orange: var(--color-orange);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: #F4F6F9;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+  background: var(--color-surface);
+  font-family: 'Inter', 'SF Pro Display', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
-  color: #1A2B4A;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--color-navy);
 }
 
 .app-container {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100dvh;
-  background: #F4F6F9;
+  background: var(--color-surface);
   position: relative;
 }
 
@@ -33,15 +48,15 @@ body {
   width: 100%;
   padding: 0.625rem 0.75rem;
   border-radius: 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   background: #f9fafb;
   font-size: 0.875rem;
-  color: #1A2B4A;
+  color: var(--color-navy);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .input:focus {
   outline: none;
-  border-color: #2E7CF6;
+  border-color: var(--color-blue);
   box-shadow: 0 0 0 3px rgba(46,124,246,0.12);
 }
 
@@ -56,6 +71,6 @@ html { scroll-behavior: smooth; }
 
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: #2E7CF6 !important;
+  border-color: var(--color-blue) !important;
   box-shadow: 0 0 0 3px rgba(46,124,246,0.12);
 }

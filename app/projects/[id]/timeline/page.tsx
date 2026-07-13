@@ -2,7 +2,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { format, parseISO, differenceInDays, addDays } from 'date-fns'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { TIMELINE_BAR_COLORS } from '@/lib/colors'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
@@ -22,7 +22,7 @@ function Spinner() {
 export default function TimelinePage() {
   const params     = useParams()
   const router     = useRouter()
-  const { getProject, refreshProjects } = useBuildFlowStore()
+  const { getProject, refreshProjects } = useBrivoxStore()
   const { ready }  = useAuthGuard()
   const project    = getProject(params.id as string)
   const scrollRef  = useRef<HTMLDivElement>(null)

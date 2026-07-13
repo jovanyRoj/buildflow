@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { ProjectStatusBadge } from '@/components/ui/StatusBadge'
 import BottomNav from '@/components/ui/BottomNav'
 import { useAuthGuard } from '@/lib/useAuthGuard'
@@ -16,7 +16,7 @@ function Spinner() {
 }
 
 export default function DashboardPage() {
-  const { projects, logout } = useBuildFlowStore()
+  const { projects, logout } = useBrivoxStore()
   const { ready, user } = useAuthGuard()
   const router = useRouter()
 

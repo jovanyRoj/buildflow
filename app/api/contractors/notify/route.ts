@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     const tradeLabel = getTradeLabel(trade)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://buildflow.vercel.app'
 
-    const message = `🏗️ BuildFlow — Welcome!
+    const message = `🏗️ Brivox — Welcome!
 
 Hi ${contactName}! You've been registered for:
 
@@ -25,7 +25,7 @@ You'll receive an SMS automatically when:
 • Schedule changes
 
 Reply HELP for commands.
-— BuildFlow (405) 873-8877`
+— Brivox (405) 873-8877`
 
     const result = await sendSMS(phone, message)
     return NextResponse.json(result)

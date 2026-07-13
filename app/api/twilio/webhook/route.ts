@@ -4,7 +4,7 @@ import { askSofia, SofiaContext } from '@/lib/sofia'
 import { sendSMS } from '@/lib/sms'
 
 // ─── POST /api/twilio/webhook ─────────────────────────────────────────────────
-// Twilio calls this when a subcontractor texts the BuildFlow number.
+// Twilio calls this when a subcontractor texts the Brivox number.
 
 export async function POST(req: NextRequest) {
   let twimlReply = ''
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
     if (!ctx) {
       // Unknown number — Sofia responds generically
-      twimlReply = 'Hi! This is BuildFlow. We don\'t have an active task for your number. ' +
+      twimlReply = 'Hi! This is Brivox. We don\'t have an active task for your number. ' +
         'Contact your builder for access.'
     } else {
       // 2. Ask Sofia (Claude AI)
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     }
   } catch (e: any) {
     console.error('[Sofia] Webhook error:', e)
-    twimlReply = 'BuildFlow received your message. We\'ll follow up shortly.'
+    twimlReply = 'Brivox received your message. We\'ll follow up shortly.'
   }
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -228,7 +228,7 @@ async function notifyBuilder(ctx: SofiaContext, alertMessage: string) {
   if (user?.phone) {
     await sendSMS(
       user.phone,
-      `🚨 BuildFlow Alert — ${ctx.projectName}\n${alertMessage}\n📋 Task: ${ctx.taskName}`
+      `🚨 Brivox Alert — ${ctx.projectName}\n${alertMessage}\n📋 Task: ${ctx.taskName}`
     )
   }
 }

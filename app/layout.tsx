@@ -4,22 +4,22 @@ import './globals.css'
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'https://buildflow-eight-sigma.vercel.app'),
-  title: 'BuildFlow – Construction Management',
+  title: 'Brivox – Construction Management',
   description: 'Construction project management with AI coordination for residential builders',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'BuildFlow',
-    startupImage: '/BuildFlowSplash.png',
+    title: 'Brivox',
+    startupImage: '/brivox-splash.png',
   },
   formatDetection: { telephone: false },
   openGraph: {
     type: 'website',
-    siteName: 'BuildFlow',
-    title: 'BuildFlow – Construction Management',
+    siteName: 'Brivox',
+    title: 'Brivox – Construction Management',
     description: 'Manage your construction projects with AI coordination',
-    images: [{ url: '/BuildFlowLogo.png', width: 1024, height: 1024 }],
+    images: [{ url: '/brivox-logo-dark.svg', width: 1024, height: 1024 }],
   },
   icons: {
     icon: [

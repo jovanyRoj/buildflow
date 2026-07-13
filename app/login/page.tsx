@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { loginUser, getSession } from '@/lib/auth'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import GoogleSignInButton from '@/components/auth/GoogleSignInButton'
 import GitHubSignInButton from '@/components/auth/GitHubSignInButton'
 
@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
-  const { setCurrentUser } = useBuildFlowStore()
+  const { setCurrentUser } = useBrivoxStore()
   const router = useRouter()
 
   useEffect(() => {
@@ -51,9 +51,9 @@ export default function LoginPage() {
       <div className="relative z-10 flex flex-col items-center justify-start pt-14 px-5 min-h-screen">
         {/* Logo */}
         <div className="flex items-center gap-3 mb-7">
-          <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-14 w-14 object-contain rounded-2xl shadow-lg" />
+          <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-14 w-14 object-contain rounded-2xl shadow-lg" />
           <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight leading-tight">BuildFlow</h1>
+            <h1 className="text-3xl font-bold text-white tracking-tight leading-tight">Brivox</h1>
             <p className="text-white/65 text-sm">Project Management for Builders</p>
           </div>
         </div>

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { useAuthGuard } from '@/lib/useAuthGuard'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
@@ -28,7 +28,7 @@ interface DocFile {
 
 export default function DocumentsPage() {
   const params = useParams()
-  const { getProject } = useBuildFlowStore()
+  const { getProject } = useBrivoxStore()
   const { ready } = useAuthGuard()
   const project = getProject(params.id as string)
 

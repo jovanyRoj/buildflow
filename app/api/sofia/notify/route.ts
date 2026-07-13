@@ -13,7 +13,7 @@ import { buildSofiaTaskReminder, buildSofiaInspectionReminder, SofiaContext } fr
 //   - Manually from the builder's project view
 
 export async function POST(req: NextRequest) {
-  // Verify internal secret so only BuildFlow can trigger this
+  // Verify internal secret so only Brivox can trigger this
   const secret = req.headers.get('x-sofia-secret')
   if (secret !== process.env.SOFIA_SECRET && process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -172,7 +172,7 @@ async function sendDailyReport(userId: string) {
     .map(p => p.name)
     .join(', ')
 
-  const report = `☀️ BuildFlow Daily — ${new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}\n` +
+  const report = `☀️ Brivox Daily — ${new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}\n` +
     `Hi ${user.name?.split(' ')[0] ?? 'Builder'}!\n\n` +
     `📊 ${active} active | ${delayed} delayed\n` +
     `📈 Avg progress: ${avgProg}%\n` +

@@ -281,7 +281,7 @@ export default function GuestPortal() {
   // ── Loading / error ────────────────────────────────────────────────────────
   if (loading || !authChecked) return (
     <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center gap-4">
-      <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-14 w-14 rounded-2xl shadow-xl"/>
+      <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-14 w-14 rounded-2xl shadow-xl"/>
       <div className="w-7 h-7 border-2 border-white border-t-transparent rounded-full animate-spin"/>
     </div>
   )
@@ -301,8 +301,8 @@ export default function GuestPortal() {
       <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center px-6">
         <div className="w-full max-w-[380px]">
           <div className="flex flex-col items-center gap-3 mb-8">
-            <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-16 w-16 rounded-2xl shadow-2xl"/>
-            <h1 className="text-white text-2xl font-bold">BuildFlow Portal</h1>
+            <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-16 w-16 rounded-2xl shadow-2xl"/>
+            <h1 className="text-white text-2xl font-bold">Brivox Portal</h1>
             {data && <p className="text-white/60 text-sm text-center">{data.project.name}</p>}
           </div>
           <div className="bg-white/10 backdrop-blur rounded-3xl p-6">
@@ -330,7 +330,7 @@ export default function GuestPortal() {
               <p className="text-red-300 text-sm text-center py-2 font-semibold">{authError}</p>
             )}
           </div>
-          <p className="text-white/30 text-xs text-center mt-6">Powered by BuildFlow · Oklahoma Construction Management</p>
+          <p className="text-white/30 text-xs text-center mt-6">Powered by Brivox · Oklahoma Construction Management</p>
         </div>
       </div>
     )
@@ -348,8 +348,8 @@ export default function GuestPortal() {
       {/* Header */}
       <div className="bg-[#1A2B4A] px-5 pt-12 pb-5">
         <div className="flex items-center gap-2 mb-4">
-          <img src="/BuildFlowLogo.png" alt="" className="h-7 w-7 rounded-lg"/>
-          <span className="text-white/50 text-xs font-medium">BuildFlow — Project Portal</span>
+          <img src="/brivox-logo-dark.svg" alt="" className="h-7 w-7 rounded-lg"/>
+          <span className="text-white/50 text-xs font-medium">Brivox — Project Portal</span>
         </div>
         <h1 className="text-white text-xl font-bold leading-tight">{project.name}</h1>
         <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
@@ -764,7 +764,7 @@ export default function GuestPortal() {
       )}
 
       <p className="text-center text-xs text-gray-400 pb-2 mt-2">
-        Powered by BuildFlow · Oklahoma Construction Management
+        Powered by Brivox · Oklahoma Construction Management
       </p>
 
       {/* ── Commitment Modal ── */}

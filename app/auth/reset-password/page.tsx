@@ -115,9 +115,9 @@ export default function ResetPasswordPage() {
       />
       <div className="relative z-10 flex flex-col items-center justify-start pt-16 px-5 min-h-screen">
         <div className="flex items-center gap-3 mb-8">
-          <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-12 w-12 object-contain rounded-2xl shadow-lg" />
+          <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-12 w-12 object-contain rounded-2xl shadow-lg" />
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">BuildFlow</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Brivox</h1>
             <p className="text-white/60 text-xs">Project Management for Builders</p>
           </div>
         </div>

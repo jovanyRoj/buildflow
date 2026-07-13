@@ -1,7 +1,7 @@
-// BuildFlow Service Worker v1.0
+// Brivox Service Worker v1.0
 // Handles offline caching and background sync
 
-const CACHE_NAME = 'buildflow-v5'
+const CACHE_NAME = 'brivox-v1'
 const STATIC_ASSETS = [
   '/',
   '/dashboard',
@@ -9,8 +9,8 @@ const STATIC_ASSETS = [
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
-  '/BuildFlowLogo.png',
-  '/BuildFlowSplash.png',
+  '/brivox-logo-dark.svg',
+  '/brivox-splash.png',
 ]
 
 // Install: cache static assets
@@ -84,7 +84,7 @@ self.addEventListener('push', (event) => {
   if (!event.data) return
   const data = event.data.json()
   event.waitUntil(
-    self.registration.showNotification(data.title || 'BuildFlow', {
+    self.registration.showNotification(data.title || 'Brivox', {
       body: data.body || '',
       icon: '/icon-192.png',
       badge: '/icon-32.png',

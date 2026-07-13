@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
 import { useAuthGuard } from '@/lib/useAuthGuard'
@@ -34,7 +34,7 @@ function Spinner() {
 
 export default function ContractorsPage() {
   const { id } = useParams() as { id: string }
-  const { getProject, refreshProjects, updateTask, currentUser } = useBuildFlowStore()
+  const { getProject, refreshProjects, updateTask, currentUser } = useBrivoxStore()
   const { ready } = useAuthGuard()
   const project = getProject(id)
 

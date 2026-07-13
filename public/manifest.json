@@ -1,6 +1,6 @@
 {
-  "name": "BuildFlow – Construction Management",
-  "short_name": "BuildFlow",
+  "name": "Brivox – Construction Management",
+  "short_name": "Brivox",
   "description": "Construction project management with AI coordination for residential builders",
   "start_url": "/dashboard",
   "display": "standalone",
@@ -32,11 +32,11 @@
   ],
   "screenshots": [
     {
-      "src": "/BuildFlowSplash.png",
+      "src": "/brivox-splash.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "BuildFlow Dashboard"
+      "label": "Brivox Dashboard"
     }
   ],
   "shortcuts": [

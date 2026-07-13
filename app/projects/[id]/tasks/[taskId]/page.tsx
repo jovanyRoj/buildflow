@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { format, parseISO, addDays } from 'date-fns'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { TaskStatusBadge } from '@/components/ui/StatusBadge'
 import TopBar from '@/components/ui/TopBar'
 import { TaskStatus, InspectionStatus } from '@/lib/types'
@@ -31,7 +31,7 @@ function Spinner() {
 
 export default function TaskDetailPage() {
   const params = useParams()
-  const { getProject, updateTask } = useBuildFlowStore()
+  const { getProject, updateTask } = useBrivoxStore()
   const { ready, user } = useAuthGuard()
   const project = getProject(params.id as string)
   const task = project?.tasks.find(t => t.id === params.taskId)

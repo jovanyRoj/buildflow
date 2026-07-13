@@ -80,7 +80,7 @@ export default function JoinProjectPage() {
 
   if (step === 'loading' || step === 'saving') return (
     <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center gap-4">
-      <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-14 w-14 rounded-2xl shadow-xl"/>
+      <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-14 w-14 rounded-2xl shadow-xl"/>
       <div className="w-7 h-7 border-2 border-white border-t-transparent rounded-full animate-spin"/>
       {step === 'saving' && <p className="text-white/60 text-sm">Registering your company…</p>}
     </div>
@@ -145,14 +145,14 @@ export default function JoinProjectPage() {
       <p className="text-white/40 text-xs text-center w-full">
         Sofia will text you at {form.phone} when your work phase begins.
       </p>
-      <img src="/BuildFlowLogo.png" alt="" className="h-8 w-8 rounded-xl opacity-30 mx-auto"/>
+      <img src="/brivox-logo-dark.svg" alt="" className="h-8 w-8 rounded-xl opacity-30 mx-auto"/>
     </div>
   )
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] pb-10 max-w-[480px] mx-auto">
       <div className="bg-[#1A2B4A] px-5 pt-12 pb-8 text-center">
-        <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-12 w-12 rounded-2xl shadow-xl mx-auto mb-4"/>
+        <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-12 w-12 rounded-2xl shadow-xl mx-auto mb-4"/>
         <h1 className="text-white text-xl font-bold">Join Construction Project</h1>
         <p className="text-white/70 text-sm mt-1">{project?.name}</p>
         <p className="text-white/40 text-xs mt-0.5 flex items-center justify-center gap-1">

@@ -43,7 +43,7 @@ export function smsTaskCompleted(
   prevTask: string, nextTask: string, nextStart: string | null, projectName: string
 ): string {
   const dateHint = nextStart ? ` Your start: ${nextStart}.` : ''
-  return `✅ BuildFlow — "${prevTask}" is complete at ${projectName}.${dateHint} You're up next for "${nextTask}". Reply START when you begin.`
+  return `✅ Brivox — "${prevTask}" is complete at ${projectName}.${dateHint} You're up next for "${nextTask}". Reply START when you begin.`
 }
 
 export function smsTaskDelayed(
@@ -51,20 +51,20 @@ export function smsTaskDelayed(
 ): string {
   const dHint   = delayDays > 0 ? ` ${delayDays}d` : ''
   const datHint = newStart ? ` Estimated new start for you: ${newStart}.` : ''
-  return `⏰ BuildFlow — "${prevTask}" is delayed${dHint} at ${projectName}.${datHint} Your task "${nextTask}" may be affected. Sofia will send an updated schedule.`
+  return `⏰ Brivox — "${prevTask}" is delayed${dHint} at ${projectName}.${datHint} Your task "${nextTask}" may be affected. Sofia will send an updated schedule.`
 }
 
 export function smsParallelWork(prevTask: string, nextTask: string, projectName: string): string {
-  return `🔀 BuildFlow — "${prevTask}" is partially complete at ${projectName}. Sofia recommends you begin "${nextTask}" in parallel. Coordinate with the other crew on site.`
+  return `🔀 Brivox — "${prevTask}" is partially complete at ${projectName}. Sofia recommends you begin "${nextTask}" in parallel. Coordinate with the other crew on site.`
 }
 
 export function smsInspectionFailed(task: string, projectName: string): string {
-  return `❌ BuildFlow — Inspection FAILED on "${task}" at ${projectName}. Contact your builder before proceeding.`
+  return `❌ Brivox — Inspection FAILED on "${task}" at ${projectName}. Contact your builder before proceeding.`
 }
 
 export function smsScheduleShifted(task: string, newStart: string, newEnd: string | null, projectName: string): string {
   const endHint = newEnd ? ` → ${newEnd}` : ''
-  return `📅 BuildFlow — Schedule update at ${projectName}: "${task}" moved to ${newStart}${endHint}. Reply HELP to chat with Sofia.`
+  return `📅 Brivox — Schedule update at ${projectName}: "${task}" moved to ${newStart}${endHint}. Reply HELP to chat with Sofia.`
 }
 
 // ─── Legacy builder/cascade templates (used by older routes) ─────────────────
@@ -75,7 +75,7 @@ export function buildTaskNotificationSMS(
   builderName: string
 ): string {
   const start = task.start_date ? ` Starting: ${task.start_date}.` : ''
-  return `🔨 BuildFlow — Hi! ${builderName} has assigned you "${task.name}" at ${project.name}.${start} Reply START when you begin or DELAY if needed.`
+  return `🔨 Brivox — Hi! ${builderName} has assigned you "${task.name}" at ${project.name}.${start} Reply START when you begin or DELAY if needed.`
 }
 
 export function buildCascadeNotificationSMS(
@@ -84,7 +84,7 @@ export function buildCascadeNotificationSMS(
   completedTaskName: string
 ): string {
   const start = nextTask.start_date ? ` Your scheduled start: ${nextTask.start_date}.` : ''
-  return `✅ BuildFlow — "${completedTaskName}" is done at ${project.name}.${start} You're up next for "${nextTask.name}". Reply START when you begin.`
+  return `✅ Brivox — "${completedTaskName}" is done at ${project.name}.${start} You're up next for "${nextTask.name}". Reply START when you begin.`
 }
 
 export function buildBuilderUpdateSMS(
@@ -96,5 +96,5 @@ export function buildBuilderUpdateSMS(
   const emoji: Record<string, string> = {
     completed: '✅', in_progress: '🔨', delayed: '⏰', pending: '⏳',
   }
-  return `${emoji[status] ?? '📋'} BuildFlow — ${subName} updated "${task.name}" at ${project.name}: ${status.replace('_', ' ').toUpperCase()}.`
+  return `${emoji[status] ?? '📋'} Brivox — ${subName} updated "${task.name}" at ${project.name}: ${status.replace('_', ' ').toUpperCase()}.`
 }

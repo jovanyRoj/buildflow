@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import { useAuthGuard } from '@/lib/useAuthGuard'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
@@ -54,7 +54,7 @@ const BLANK = {
 
 export default function InspectionsPage() {
   const params = useParams()
-  const { getProject } = useBuildFlowStore()
+  const { getProject } = useBrivoxStore()
   const { ready } = useAuthGuard()
   const project = getProject(params.id as string)
 

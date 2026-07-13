@@ -1,7 +1,7 @@
 'use client'
 import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 import TopBar from '@/components/ui/TopBar'
 import BottomNav from '@/components/ui/BottomNav'
 import { NotificationType } from '@/lib/types'
@@ -18,7 +18,7 @@ const NOTIF_ICONS: Record<NotificationType, { icon: string; bg: string; text: st
 
 export default function NotificationsPage() {
   const router = useRouter()
-  const { projects, getAllNotifications, markNotificationRead, markAllNotificationsRead } = useBuildFlowStore()
+  const { projects, getAllNotifications, markNotificationRead, markAllNotificationsRead } = useBrivoxStore()
   const { ready } = useAuthGuard()
 
   if (!ready) return <Spinner />

@@ -1,11 +1,11 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 
 export default function BottomNav() {
   const pathname = usePathname()
-  const unread = useBuildFlowStore(s => s.getUnreadCount())
+  const unread = useBrivoxStore(s => s.getUnreadCount())
 
   const tabs = [
     {

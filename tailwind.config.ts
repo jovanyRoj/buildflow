@@ -14,10 +14,12 @@ const config: Config = {
           mid:    '#1E3A6E',
           blue:   '#2E7CF6',
           light:  '#EBF3FF',
+          orange: '#F97316',
+          'orange-light': '#FFF3E8',
         },
       },
       fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Display', 'Segoe UI', 'sans-serif'],
+        sans: ['Inter', 'SF Pro Display', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
       },
     },
   },

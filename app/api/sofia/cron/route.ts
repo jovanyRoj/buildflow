@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
     const delayed = projects.filter(p => p.status === 'delayed').length
     const avg     = Math.round(projects.reduce((s, p) => s + p.progress_percentage, 0) / projects.length)
 
-    const msg = `☀️ BuildFlow — ${new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}\n` +
+    const msg = `☀️ Brivox — ${new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}\n` +
       `Hi ${builder.name?.split(' ')[0]}! Sofia here.\n` +
       `📊 ${active} active | ${delayed} delayed | avg ${avg}%\n` +
       (delayed > 0 ? `⚠️ ${projects.filter(p => p.status === 'delayed').map(p => p.name).join(', ')} delayed\n` : '') +

@@ -10,7 +10,7 @@ export default function ErrorPage({
   reset: () => void
 }) {
   useEffect(() => {
-    console.error('BuildFlow error:', error)
+    console.error('Brivox error:', error)
   }, [error])
 
   return (

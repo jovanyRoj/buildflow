@@ -261,7 +261,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           } else if (inspection_status === 'failed') {
             smsBody = smsInspectionFailed(task.name, projectName)
           } else if (newStatus === 'in_progress' && task.status !== 'in_progress') {
-            smsBody = `📋 BuildFlow — "${task.name}" has started at ${projectName}. Get ready: "${nextTask.name}" follows. Reply HELP to chat with Sofia.`
+            smsBody = `📋 Brivox — "${task.name}" has started at ${projectName}. Get ready: "${nextTask.name}" follows. Reply HELP to chat with Sofia.`
           }
 
           if (smsBody) {
@@ -292,7 +292,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
             const newEnd   = shiftDate(dt.end_date,   shiftDays)
             await supabaseAdmin.from('bf_tasks').update({ start_date: newStart, end_date: newEnd }).eq('id', dt.id)
             if (dt.subcontractor_phone) {
-              const shiftMsg = `📅 BuildFlow — Schedule update at ${projectName}: "${dt.name}" moved to ${newStart}. Previous task "${task.name}" delayed. Reply HELP for Sofia.`
+              const shiftMsg = `📅 Brivox — Schedule update at ${projectName}: "${dt.name}" moved to ${newStart}. Previous task "${task.name}" delayed. Reply HELP for Sofia.`
               await sendSMS(dt.subcontractor_phone, shiftMsg)
               downstreamSMSSent++
               // Mirror SMS to sub's portal messages

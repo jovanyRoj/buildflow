@@ -2,12 +2,12 @@
 import { Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { loginWithOAuth } from '@/lib/auth'
-import { useBuildFlowStore } from '@/lib/store'
+import { useBrivoxStore } from '@/lib/store'
 
 function GoogleCallbackInner() {
   const router = useRouter()
   const params = useSearchParams()
-  const { setCurrentUser } = useBuildFlowStore()
+  const { setCurrentUser } = useBrivoxStore()
 
   useEffect(() => {
     const raw = params.get('profile')
@@ -38,7 +38,7 @@ function GoogleCallbackInner() {
 export default function GoogleCallbackPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#1A2B4A] gap-4">
-      <img src="/BuildFlowLogo.png" alt="BuildFlow" className="h-16 w-16 rounded-2xl shadow-xl" />
+      <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-16 w-16 rounded-2xl shadow-xl" />
       <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
       <p className="text-white/70 text-sm">Signing in with Google...</p>
       <Suspense>

@@ -38,7 +38,7 @@ export interface SofiaResponse {
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
-const SOFIA_SYSTEM_PROMPT = `You are Sofia, an AI construction project coordinator for BuildFlow.
+const SOFIA_SYSTEM_PROMPT = `You are Sofia, an AI construction project coordinator for Brivox.
 You communicate with subcontractors via SMS to track residential construction progress.
 
 PERSONALITY:
@@ -190,14 +190,14 @@ function fallbackResponse(message: string): SofiaResponse {
 export function buildSofiaTaskReminder(ctx: SofiaContext, daysUntilStart: number): string {
   const emoji = daysUntilStart === 0 ? '🔨' : '📅'
   const when = daysUntilStart === 0 ? 'TODAY' : `in ${daysUntilStart} day${daysUntilStart > 1 ? 's' : ''}`
-  return `${emoji} BuildFlow — Hi ${ctx.subName || 'there'}!\n` +
+  return `${emoji} Brivox — Hi ${ctx.subName || 'there'}!\n` +
     `Sofia here. Your task "${ctx.taskName}" at ${ctx.projectName} starts ${when}.\n` +
     `📍 ${ctx.projectAddress}\n` +
     `Reply START when you begin or DELAY if needed.`
 }
 
 export function buildSofiaInspectionReminder(ctx: SofiaContext): string {
-  return `📋 BuildFlow Reminder — ${ctx.subName || 'Hi'}!\n` +
+  return `📋 Brivox Reminder — ${ctx.subName || 'Hi'}!\n` +
     `"${ctx.taskName}" requires an Oklahoma inspection before proceeding.\n` +
     `Reply: INSPECTION SCHEDULED | INSPECTION PASSED | INSPECTION FAILED`
 }

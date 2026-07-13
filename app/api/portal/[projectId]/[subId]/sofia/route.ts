@@ -4,7 +4,7 @@ import { sendSMS, smsTaskDelayed, smsParallelWork, smsScheduleShifted } from '@/
 
 type Ctx = { params: Promise<{ projectId: string; subId: string }> }
 
-const SOFIA_SCHEDULE_PROMPT = `You are Sofia, an AI construction project coordinator for BuildFlow.
+const SOFIA_SCHEDULE_PROMPT = `You are Sofia, an AI construction project coordinator for Brivox.
 A subcontractor has sent you a message about a delay or issue on their task.
 You have access to the task schedule and recent builder notifications for context.
 
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
             if (dt.subcontractor_phone) {
               const smsBody = i === 0 && sofiaResult?.downstream_note
-                ? `📅 BuildFlow — ${sofiaResult.downstream_note} "${dt.name}" moved to ${newStart} at ${projectName}.`
+                ? `📅 Brivox — ${sofiaResult.downstream_note} "${dt.name}" moved to ${newStart} at ${projectName}.`
                 : smsTaskDelayed(task.name, dt.name, delayDays, newStart, projectName)
               await sendSMS(dt.subcontractor_phone, smsBody)
               downstreamNotified++
@@ -212,7 +212,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             // Don't shift dates — but SMS to coordinate
             if (dt.subcontractor_phone && i === 0) {
               const smsBody = sofiaResult?.downstream_note
-                ? `🔀 BuildFlow — ${sofiaResult.downstream_note} Coordinate with "${task.name}" team at ${projectName}.`
+                ? `🔀 Brivox — ${sofiaResult.downstream_note} Coordinate with "${task.name}" team at ${projectName}.`
                 : smsParallelWork(task.name, dt.name, projectName)
               await sendSMS(dt.subcontractor_phone, smsBody)
               downstreamNotified++
