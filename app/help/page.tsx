@@ -157,7 +157,7 @@ const TOPICS: Topic[] = [
       { q: 'What does KORVIA AI do?',
         a: 'KORVIA monitors your project 24/7: reads SMS replies from subs, compares sub quotes to your estimate, auto-triggers SMS on task completion, and sends delay/over-budget alerts.',
         link: '/notifications', linkLabel: 'Go to Alerts' },
-      { q: 'Where do I see KORVIA's alerts?',
+      { q: 'Where do I see KORVIA\'s alerts?',
         a: 'Tap the 🔔 Alerts tab in the bottom navigation. The red badge shows unread alert count.',
         link: '/notifications', linkLabel: 'Go to Alerts' },
       { q: 'Does KORVIA send SMS automatically?',
