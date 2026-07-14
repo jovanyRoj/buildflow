@@ -1,7 +1,7 @@
-// ─── Sofia AI — Construction Coordinator powered by Claude ───────────────────
-// Sofia handles incoming SMS from subcontractors and responds intelligently.
+// ─── KORVIA AI — Construction Coordinator powered by Claude ───────────────────
+// KORVIA handles incoming SMS from subcontractors and responds intelligently.
 
-export interface SofiaContext {
+export interface KorviaContext {
   subName: string
   subPhone: string
   taskId: string
@@ -38,7 +38,7 @@ export interface SofiaResponse {
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
-const SOFIA_SYSTEM_PROMPT = `You are Sofia, an AI construction project coordinator for Brivox.
+const KORVIA_SYSTEM_PROMPT = `You are KORVIA, an AI construction project coordinator for Brivox.
 You communicate with subcontractors via SMS to track residential construction progress.
 
 PERSONALITY:
@@ -70,15 +70,15 @@ RULES:
 - Always confirm what you recorded
 - If message is unclear, ask ONE clarifying question`
 
-// ─── Main function: ask Sofia ─────────────────────────────────────────────────
+// ─── Main function: ask KORVIA ─────────────────────────────────────────────────
 
-export async function askSofia(
+export async function askKorvia(
   message: string,
-  ctx: SofiaContext
+  ctx: KorviaContext
 ): Promise<SofiaResponse> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    console.error('ANTHROPIC_API_KEY not set — Sofia is offline')
+    console.error('ANTHROPIC_API_KEY not set — KORVIA is offline')
     return fallbackResponse(message)
   }
 
@@ -95,7 +95,7 @@ export async function askSofia(
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 350,
-        system: SOFIA_SYSTEM_PROMPT,
+        system: KORVIA_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
       }),
     })
@@ -120,7 +120,7 @@ export async function askSofia(
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildPrompt(message: string, ctx: SofiaContext): string {
+function buildPrompt(message: string, ctx: KorviaContext): string {
   const portalLines: string[] = []
   if (ctx.subCommittedStart || ctx.subCommittedEnd)
     portalLines.push(`Committed: ${ctx.subCommittedStart ?? '—'} → ${ctx.subCommittedEnd ?? '—'}`)
@@ -163,7 +163,7 @@ function buildPrompt(message: string, ctx: SofiaContext): string {
     `SUBCONTRACTOR MESSAGE:`,
     `"${message}"`,
     '',
-    'Respond as Sofia.',
+    'Respond as KORVIA.',
   ].join('\n')
 }
 
@@ -185,9 +185,9 @@ function fallbackResponse(message: string): SofiaResponse {
 }
 
 // ─── Proactive message builder ────────────────────────────────────────────────
-// Used by /api/sofia/notify to send Sofia-crafted messages proactively
+// Used by /api/korvia/notify to send Sofia-crafted messages proactively
 
-export function buildSofiaTaskReminder(ctx: SofiaContext, daysUntilStart: number): string {
+export function buildKorviaTaskReminder(ctx: KorviaContext, daysUntilStart: number): string {
   const emoji = daysUntilStart === 0 ? '🔨' : '📅'
   const when = daysUntilStart === 0 ? 'TODAY' : `in ${daysUntilStart} day${daysUntilStart > 1 ? 's' : ''}`
   return `${emoji} Brivox — Hi ${ctx.subName || 'there'}!\n` +
@@ -196,7 +196,7 @@ export function buildSofiaTaskReminder(ctx: SofiaContext, daysUntilStart: number
     `Reply START when you begin or DELAY if needed.`
 }
 
-export function buildSofiaInspectionReminder(ctx: SofiaContext): string {
+export function buildKorviaInspectionReminder(ctx: KorviaContext): string {
   return `📋 Brivox Reminder — ${ctx.subName || 'Hi'}!\n` +
     `"${ctx.taskName}" requires an Oklahoma inspection before proceeding.\n` +
     `Reply: INSPECTION SCHEDULED | INSPECTION PASSED | INSPECTION FAILED`

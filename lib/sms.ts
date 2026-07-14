@@ -51,11 +51,11 @@ export function smsTaskDelayed(
 ): string {
   const dHint   = delayDays > 0 ? ` ${delayDays}d` : ''
   const datHint = newStart ? ` Estimated new start for you: ${newStart}.` : ''
-  return `⏰ Brivox — "${prevTask}" is delayed${dHint} at ${projectName}.${datHint} Your task "${nextTask}" may be affected. Sofia will send an updated schedule.`
+  return `⏰ Brivox — "${prevTask}" is delayed${dHint} at ${projectName}.${datHint} Your task "${nextTask}" may be affected. KORVIA will send an updated schedule.`
 }
 
 export function smsParallelWork(prevTask: string, nextTask: string, projectName: string): string {
-  return `🔀 Brivox — "${prevTask}" is partially complete at ${projectName}. Sofia recommends you begin "${nextTask}" in parallel. Coordinate with the other crew on site.`
+  return `🔀 Brivox — "${prevTask}" is partially complete at ${projectName}. KORVIA recommends you begin "${nextTask}" in parallel. Coordinate with the other crew on site.`
 }
 
 export function smsInspectionFailed(task: string, projectName: string): string {
@@ -64,7 +64,7 @@ export function smsInspectionFailed(task: string, projectName: string): string {
 
 export function smsScheduleShifted(task: string, newStart: string, newEnd: string | null, projectName: string): string {
   const endHint = newEnd ? ` → ${newEnd}` : ''
-  return `📅 Brivox — Schedule update at ${projectName}: "${task}" moved to ${newStart}${endHint}. Reply HELP to chat with Sofia.`
+  return `📅 Brivox — Schedule update at ${projectName}: "${task}" moved to ${newStart}${endHint}. Reply HELP to chat with KORVIA.`
 }
 
 // ─── Legacy builder/cascade templates (used by older routes) ─────────────────

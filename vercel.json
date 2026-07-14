@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/sofia/cron",
+      "path": "/api/korvia/cron",
       "schedule": "0 8 * * *"
     }
   ],

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendSMS } from '@/lib/sms'
-import { buildSofiaTaskReminder, SofiaContext } from '@/lib/sofia'
+import { buildKorviaTaskReminder, KorviaContext } from '@/lib/korvia'
 
-// ─── GET /api/sofia/cron ──────────────────────────────────────────────────────
+// ─── GET /api/korvia/cron ──────────────────────────────────────────────────────
 // Vercel Cron calls this every day at 8am (configured in vercel.json).
-// Sofia checks all active projects and:
+// KORVIA checks all active projects and:
 //   1. Sends task reminders to subs whose task starts in 0-1 days
 //   2. Sends daily summary to all builders with active projects
 
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     const project = (task as any).bf_projects
     const daysUntil = task.start_date === today ? 0 : 1
 
-    const ctx: SofiaContext = {
+    const ctx: KorviaContext = {
       subName: task.assigned_to ?? '',
       subPhone: task.subcontractor_phone,
       taskId: task.id,
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       userId: project.user_id,
     }
 
-    const message = buildSofiaTaskReminder(ctx, daysUntil)
+    const message = buildKorviaTaskReminder(ctx, daysUntil)
     const res = await sendSMS(task.subcontractor_phone, message)
     results.push(`${task.name}: ${res.ok ? 'sent' : res.error}`)
   }
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
     const avg     = Math.round(projects.reduce((s, p) => s + p.progress_percentage, 0) / projects.length)
 
     const msg = `☀️ Brivox — ${new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}\n` +
-      `Hi ${builder.name?.split(' ')[0]}! Sofia here.\n` +
+      `Hi ${builder.name?.split(' ')[0]}! KORVIA here.\n` +
       `📊 ${active} active | ${delayed} delayed | avg ${avg}%\n` +
       (delayed > 0 ? `⚠️ ${projects.filter(p => p.status === 'delayed').map(p => p.name).join(', ')} delayed\n` : '') +
       `All systems monitored. 🤖`

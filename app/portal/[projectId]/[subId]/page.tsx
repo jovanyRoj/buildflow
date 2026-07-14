@@ -37,14 +37,14 @@ const MATERIALS_OPTIONS = [
   { value: 'not_needed',  label: '—  No materials needed', color: 'border-gray-200 bg-gray-50 text-gray-600' },
 ]
 
-interface PortalMessage { id: string; sender: 'sub' | 'sofia'; content: string; created_at: string }
+interface PortalMessage { id: string; sender: 'sub' | 'korvia'; content: string; created_at: string }
 interface CommitForm {
   sub_start_date: string; sub_end_date: string; sub_notes: string
   sub_crew_size: string; sub_materials_status: string; sub_confirmed: boolean
   sub_quoted_cost: string
 }
 interface DateEdit { sub_start_date: string; sub_end_date: string; sub_notes?: string }
-interface SofiaChat { message: string; sending: boolean; reply: string | null; downstreamNotified: number; downstreamAction: string }
+interface KorviaChat { message: string; sending: boolean; reply: string | null; downstreamNotified: number; downstreamAction: string }
 
 function formatBytes(b: number) {
   if (!b) return ''
@@ -101,9 +101,9 @@ export default function GuestPortal() {
   const [dateSaving, setDateSaving] = useState<string | null>(null)
   const [dateSaved, setDateSaved]   = useState<string | null>(null)
 
-  // ── Sofia per-task chat ────────────────────────────────────────────────────
-  const [sofiaChats, setSofiaChats] = useState<Record<string, SofiaChat>>({})
-  const [sofiaOpen, setSofiaOpen]   = useState<string | null>(null)
+  // ── KORVIA per-task chat ────────────────────────────────────────────────────
+  const [korviaChats, setKorviaChats] = useState<Record<string, KorviaChat>>({})
+  const [korviaOpen, setKorviaOpen]   = useState<string | null>(null)
 
   // ── Fetch project data ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -176,7 +176,7 @@ export default function GuestPortal() {
       const json = await res.json()
       if (json.ok) {
         if (json.message)   setMessages(m => [...m, json.message])
-        if (json.sofiaReply) setMessages(m => [...m, json.sofiaReply])
+        if (json.korviaReply) setMessages(m => [...m, json.korviaReply])
       }
     } catch { setMsgInput(content) }
     finally  { setMsgSending(false) }
@@ -250,24 +250,24 @@ export default function GuestPortal() {
     } finally { setDateSaving(null) }
   }
 
-  function getSofiaChat(taskId: string): SofiaChat {
-    return sofiaChats[taskId] ?? { message: '', sending: false, reply: null, downstreamNotified: 0, downstreamAction: 'none' }
+  function getKorviaChat(taskId: string): KorviaChat {
+    return korviaChats[taskId] ?? { message: '', sending: false, reply: null, downstreamNotified: 0, downstreamAction: 'none' }
   }
-  function setSofiaChat(taskId: string, updates: Partial<SofiaChat>) {
-    setSofiaChats(s => ({ ...s, [taskId]: { ...getSofiaChat(taskId), ...updates } }))
+  function setKorviaChat(taskId: string, updates: Partial<KorviaChat>) {
+    setKorviaChats(s => ({ ...s, [taskId]: { ...getKorviaChat(taskId), ...updates } }))
   }
 
-  async function sendToSofia(taskId: string) {
-    const chat = getSofiaChat(taskId)
+  async function sendToKorvia(taskId: string) {
+    const chat = getKorviaChat(taskId)
     if (!chat.message.trim() || chat.sending) return
-    setSofiaChat(taskId, { sending: true, reply: null })
+    setKorviaChat(taskId, { sending: true, reply: null })
     try {
-      const res = await fetch(`/api/portal/${projectId}/${subId}/sofia`, {
+      const res = await fetch(`/api/portal/${projectId}/${subId}/korvia`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId, message: chat.message }),
       })
       const json = await res.json()
-      setSofiaChat(taskId, { sending: false, reply: json.sofiaReply ?? 'Message received.',
+      setKorviaChat(taskId, { sending: false, reply: json.korviaReply ?? 'Message received.',
         downstreamNotified: json.downstreamNotified ?? 0, downstreamAction: json.downstreamAction ?? 'none' })
       if (json.newDates?.sub_start_date || json.newDates?.sub_end_date) {
         setData((d: any) => ({ ...d, tasks: d.tasks.map((t: any) => t.id === taskId ? { ...t, ...json.newDates } : t) }))
@@ -275,7 +275,7 @@ export default function GuestPortal() {
           sub_start_date: json.newDates.sub_start_date ?? e[taskId]?.sub_start_date ?? '',
           sub_end_date:   json.newDates.sub_end_date   ?? e[taskId]?.sub_end_date   ?? '' } }))
       }
-    } catch { setSofiaChat(taskId, { sending: false, reply: 'Could not reach Sofia. Try again.' }) }
+    } catch { setKorviaChat(taskId, { sending: false, reply: 'Could not reach KORVIA. Try again.' }) }
   }
 
   // ── Loading / error ────────────────────────────────────────────────────────
@@ -469,10 +469,10 @@ export default function GuestPortal() {
           <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex gap-3">
             <span className="text-2xl">🤖</span>
             <div>
-              <p className="text-xs font-bold text-blue-700 mb-1">Sofia AI is tracking your schedule</p>
+              <p className="text-xs font-bold text-blue-700 mb-1">KORVIA is tracking your schedule</p>
               <p className="text-xs text-blue-600 leading-relaxed">
                 Update your dates above or go to <strong>Tasks</strong> to update status.
-                Use <strong>Messages</strong> to send notes to Sofia — she'll alert your builder instantly.
+                Use <strong>Messages</strong> to send notes to KORVIA — she'll alert your builder instantly.
               </p>
             </div>
           </div>
@@ -492,7 +492,7 @@ export default function GuestPortal() {
             <span className="text-lg mt-0.5">🤖</span>
             <p className="text-xs text-amber-700 leading-relaxed">
               <strong>Keep the builder in the loop.</strong> Update your status, submit your quote price,
-              and use Sofia chat if anything changes — she&apos;ll notify your builder automatically.
+              and use KORVIA chat if anything changes — she&apos;ll notify your builder automatically.
             </p>
           </div>
 
@@ -503,8 +503,8 @@ export default function GuestPortal() {
               const startLabel = daysLabel(task.start_date)
               const hasCommitment = task.sub_start_date || task.sub_end_date || task.sub_confirmed
               const taskConflicts = conflicts[task.id] ?? []
-              const chat = getSofiaChat(task.id)
-              const isSofiaOpen = sofiaOpen === task.id
+              const chat = getKorviaChat(task.id)
+              const isKorviaOpen = korviaOpen === task.id
               const currentSubStatus = task.inspection_status === 'failed' ? 'fail_inspection' : task.status
               const quotedMoney = fmtMoney(task.sub_quoted_cost)
 
@@ -571,7 +571,7 @@ export default function GuestPortal() {
 
                     {taskConflicts.length > 0 && (
                       <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-2">
-                        <p className="text-xs font-bold text-red-600 mb-1">⚠️ Sofia alert</p>
+                        <p className="text-xs font-bold text-red-600 mb-1">⚠️ KORVIA alert</p>
                         {taskConflicts.map((c: string, i: number) => <p key={i} className="text-xs text-red-500">{c}</p>)}
                       </div>
                     )}
@@ -615,29 +615,29 @@ export default function GuestPortal() {
                         className="flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-gray-200 text-gray-500 hover:border-gray-300 flex items-center justify-center gap-1 transition active:scale-[0.97]">
                         ⚙️ More options
                       </button>
-                      <button onClick={() => setSofiaOpen(isSofiaOpen ? null : task.id)}
+                      <button onClick={() => setKorviaOpen(isKorviaOpen ? null : task.id)}
                         className={`px-3 py-2.5 rounded-xl text-xs font-bold border-2 transition flex items-center gap-1 ${
-                          isSofiaOpen ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-gray-200 text-gray-500 hover:border-purple-300'
+                          isKorviaOpen ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-gray-200 text-gray-500 hover:border-purple-300'
                         }`}>
-                        🤖 Sofia
+                        🤖 KORVIA
                       </button>
                     </div>
 
-                    {isSofiaOpen && (
+                    {isKorviaOpen && (
                       <div className="mt-3 border border-purple-100 rounded-2xl overflow-hidden">
                         <div className="bg-purple-50 px-3 py-2.5 flex items-start gap-2">
                           <span className="text-lg">🤖</span>
                           <div>
-                            <p className="text-xs font-bold text-purple-700">Chat with Sofia</p>
+                            <p className="text-xs font-bold text-purple-700">Chat with KORVIA</p>
                             <p className="text-xs text-purple-500 leading-relaxed">
-                              Tell Sofia about any delay or issue. She&apos;ll update the schedule and notify your builder.
+                              Tell KORVIA about any delay or issue. She&apos;ll update the schedule and notify your builder.
                             </p>
                           </div>
                         </div>
                         {chat.reply && (
                           <div className="px-3 py-2 bg-white">
                             <div className="bg-purple-50 rounded-xl px-3 py-2.5">
-                              <p className="text-xs font-bold text-purple-700 mb-1">🤖 Sofia:</p>
+                              <p className="text-xs font-bold text-purple-700 mb-1">🤖 KORVIA:</p>
                               <p className="text-xs text-purple-800 leading-relaxed">{chat.reply}</p>
                               {chat.downstreamNotified > 0 && (
                                 <p className="text-xs text-purple-600 mt-2 font-semibold border-t border-purple-100 pt-2">
@@ -654,12 +654,12 @@ export default function GuestPortal() {
                             placeholder="e.g. The concrete supplier is delayed 2 days — won't be ready until Thursday..."
                             className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 text-[#1A2B4A] focus:outline-none focus:border-purple-400 resize-none"
                             value={chat.message}
-                            onChange={e => setSofiaChat(task.id, { message: e.target.value })}/>
-                          <button disabled={!chat.message.trim() || chat.sending} onClick={() => sendToSofia(task.id)}
+                            onChange={e => setKorviaChat(task.id, { message: e.target.value })}/>
+                          <button disabled={!chat.message.trim() || chat.sending} onClick={() => sendToKorvia(task.id)}
                             className="w-full py-2.5 rounded-xl bg-purple-600 text-white text-xs font-bold disabled:opacity-50 flex items-center justify-center gap-1.5 transition active:scale-[0.98]">
                             {chat.sending
-                              ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"/> Sofia is analyzing…</>
-                              : '📤 Send to Sofia'}
+                              ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"/> KORVIA is analyzing…</>
+                              : '📤 Send to KORVIA'}
                           </button>
                         </div>
                       </div>
@@ -682,13 +682,13 @@ export default function GuestPortal() {
                 <span className="text-5xl">🤖</span>
                 <p className="text-gray-600 text-sm font-semibold">No messages yet</p>
                 <p className="text-gray-400 text-xs max-w-[220px] leading-relaxed">
-                  Send a message to Sofia and she will relay it to the builder instantly.
+                  Send a message to KORVIA and she will relay it to the builder instantly.
                 </p>
               </div>
             ) : (
               messages.map(msg => (
                 <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'sub' ? 'flex-row-reverse' : 'flex-row'}`}>
-                  {msg.sender === 'sofia' && (
+                  {msg.sender === 'korvia' && (
                     <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-sm flex-shrink-0">🤖</div>
                   )}
                   <div className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 ${
@@ -696,8 +696,8 @@ export default function GuestPortal() {
                       ? 'bg-[#1A2B4A] text-white rounded-br-sm'
                       : 'bg-white border border-purple-100 text-[#1A2B4A] rounded-bl-sm shadow-sm'
                   }`}>
-                    {msg.sender === 'sofia' && (
-                      <p className="text-xs font-bold text-purple-600 mb-1">Sofia AI</p>
+                    {msg.sender === 'korvia' && (
+                      <p className="text-xs font-bold text-purple-600 mb-1">KORVIA AI</p>
                     )}
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                     <p className={`text-xs mt-1.5 ${msg.sender === 'sub' ? 'text-white/50' : 'text-gray-400'}`}>
@@ -714,7 +714,7 @@ export default function GuestPortal() {
           <div className="bg-white border-t border-gray-100 px-4 py-3">
             <div className="flex gap-2 items-end">
               <textarea rows={2}
-                placeholder="Send a message to Sofia…"
+                placeholder="Send a message to KORVIA…"
                 value={msgInput}
                 onChange={e => setMsgInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
@@ -727,7 +727,7 @@ export default function GuestPortal() {
                 }
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-1.5 text-center">Sofia will relay your message to the builder</p>
+            <p className="text-xs text-gray-400 mt-1.5 text-center">KORVIA will relay your message to the builder</p>
           </div>
         </div>
       )}
@@ -813,7 +813,7 @@ export default function GuestPortal() {
 
               <div>
                 <label className="text-xs font-semibold text-gray-500 block mb-1">💵 MY QUOTED PRICE (optional)</label>
-                <p className="text-xs text-gray-400 mb-2">Enter your price for this task. Sofia will compare it against the builder's estimate and send an alert if it differs.</p>
+                <p className="text-xs text-gray-400 mb-2">Enter your price for this task. KORVIA will compare it against the builder's estimate and send an alert if it differs.</p>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">$</span>
                   <input type="number" min="0" placeholder="e.g. 18500"
@@ -821,7 +821,7 @@ export default function GuestPortal() {
                     value={form.sub_quoted_cost} onChange={e => setForm(f => f ? { ...f, sub_quoted_cost: e.target.value } : f)}/>
                 </div>
                 {form.sub_quoted_cost && parseFloat(form.sub_quoted_cost) > 0 && (
-                  <p className="text-xs text-emerald-600 mt-1.5">✓ Sofia will notify the builder with this quote.</p>
+                  <p className="text-xs text-emerald-600 mt-1.5">✓ KORVIA will notify the builder with this quote.</p>
                 )}
               </div>
 

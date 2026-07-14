@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendSMS } from '@/lib/sms'
-import { buildSofiaTaskReminder, buildSofiaInspectionReminder, SofiaContext } from '@/lib/sofia'
+import { buildKorviaTaskReminder, buildKorviaInspectionReminder, KorviaContext } from '@/lib/korvia'
 
-// ─── POST /api/sofia/notify ───────────────────────────────────────────────────
-// Sofia proactively contacts subcontractors.
+// ─── POST /api/korvia/notify ───────────────────────────────────────────────────
+// KORVIA proactively contacts subcontractors.
 // Types: 'task_reminder' | 'inspection_reminder' | 'daily_report'
 //
 // Can be called:
@@ -80,7 +80,7 @@ async function sendTaskReminder(taskId: string) {
     .or(`phone.eq.${task.subcontractor_phone}`)
     .maybeSingle()
 
-  const ctx: SofiaContext = {
+  const ctx: KorviaContext = {
     subName: sub?.name ?? task.assigned_to ?? '',
     subPhone: task.subcontractor_phone,
     taskId: task.id,
@@ -96,7 +96,7 @@ async function sendTaskReminder(taskId: string) {
     userId: project.user_id,
   }
 
-  const message = buildSofiaTaskReminder(ctx, daysUntil)
+  const message = buildKorviaTaskReminder(ctx, daysUntil)
   const result = await sendSMS(task.subcontractor_phone, message)
   return NextResponse.json({ ok: result.ok, message })
 }
@@ -119,7 +119,7 @@ async function sendInspectionReminder(taskId: string) {
   }
 
   const project = (task as any).bf_projects
-  const ctx: SofiaContext = {
+  const ctx: KorviaContext = {
     subName: task.assigned_to ?? '',
     subPhone: task.subcontractor_phone,
     taskId: task.id,
@@ -135,7 +135,7 @@ async function sendInspectionReminder(taskId: string) {
     userId: project.user_id,
   }
 
-  const message = buildSofiaInspectionReminder(ctx)
+  const message = buildKorviaInspectionReminder(ctx)
   const result = await sendSMS(task.subcontractor_phone, message)
   return NextResponse.json({ ok: result.ok, message })
 }

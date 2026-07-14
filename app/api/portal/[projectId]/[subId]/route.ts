@@ -124,7 +124,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
     await supabaseAdmin.from('bf_tasks').update(updateData).eq('id', taskId)
 
-    // ── Save sub quoted cost + Sofia budget comparison ──────────────────────
+    // ── Save sub quoted cost + KORVIA budget comparison ──────────────────────
     let budgetAlerts: string[] = []
     if (sub_quoted_cost !== undefined && sub_quoted_cost !== null && sub_quoted_cost !== '') {
       const amount = parseFloat(String(sub_quoted_cost))
@@ -151,17 +151,17 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
           if (variance > 0) {
             budgetAlerts.push(
-              `💰 Sofia — Budget Alert: ${sub.company} quoted ${fmt(amount)} for "${task.name}". ` +
+              `💰 KORVIA — Budget Alert: ${sub.company} quoted ${fmt(amount)} for "${task.name}". ` +
               `This is ${fmt(variance)} (+${variancePct}%) OVER the estimate of ${fmt(estimatedTotal)}. Review required.`
             )
           } else if (variance < 0) {
             budgetAlerts.push(
-              `✅ Sofia — Budget: ${sub.company} quoted ${fmt(amount)} for "${task.name}". ` +
+              `✅ KORVIA — Budget: ${sub.company} quoted ${fmt(amount)} for "${task.name}". ` +
               `${fmt(Math.abs(variance))} (${Math.abs(variancePct)}%) UNDER estimate of ${fmt(estimatedTotal)}. Looking good!`
             )
           } else {
             budgetAlerts.push(
-              `✅ Sofia — Budget: ${sub.company} quoted ${fmt(amount)} for "${task.name}", exactly on estimate.`
+              `✅ KORVIA — Budget: ${sub.company} quoted ${fmt(amount)} for "${task.name}", exactly on estimate.`
             )
           }
         } else {
@@ -221,7 +221,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       }
     }
 
-    // ── Read recent builder notes for Sofia context ──
+    // ── Read recent builder notes for KORVIA context ──
     const { data: recentNotes } = await supabaseAdmin
       .from('bf_notifications')
       .select('title, body, created_at')
@@ -261,7 +261,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           } else if (inspection_status === 'failed') {
             smsBody = smsInspectionFailed(task.name, projectName)
           } else if (newStatus === 'in_progress' && task.status !== 'in_progress') {
-            smsBody = `📋 Brivox — "${task.name}" has started at ${projectName}. Get ready: "${nextTask.name}" follows. Reply HELP to chat with Sofia.`
+            smsBody = `📋 Brivox — "${task.name}" has started at ${projectName}. Get ready: "${nextTask.name}" follows. Reply HELP to chat with KORVIA.`
           }
 
           if (smsBody) {
@@ -274,7 +274,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
                 .eq('project_id', projectId).eq('phone', nextPhone).maybeSingle()
               if (nextSub) {
                 await supabaseAdmin.from('bf_portal_messages').insert({
-                  project_id: projectId, sub_id: nextSub.id, sender: 'sofia', content: smsBody,
+                  project_id: projectId, sub_id: nextSub.id, sender: 'korvia', content: smsBody,
                 })
               }
             } catch {}
@@ -292,7 +292,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
             const newEnd   = shiftDate(dt.end_date,   shiftDays)
             await supabaseAdmin.from('bf_tasks').update({ start_date: newStart, end_date: newEnd }).eq('id', dt.id)
             if (dt.subcontractor_phone) {
-              const shiftMsg = `📅 Brivox — Schedule update at ${projectName}: "${dt.name}" moved to ${newStart}. Previous task "${task.name}" delayed. Reply HELP for Sofia.`
+              const shiftMsg = `📅 Brivox — Schedule update at ${projectName}: "${dt.name}" moved to ${newStart}. Previous task "${task.name}" delayed. Reply HELP for KORVIA.`
               await sendSMS(dt.subcontractor_phone, shiftMsg)
               downstreamSMSSent++
               // Mirror SMS to sub's portal messages
@@ -302,7 +302,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
                   .eq('project_id', projectId).eq('phone', dt.subcontractor_phone).maybeSingle()
                 if (shiftSub) {
                   await supabaseAdmin.from('bf_portal_messages').insert({
-                    project_id: projectId, sub_id: shiftSub.id, sender: 'sofia', content: shiftMsg,
+                    project_id: projectId, sub_id: shiftSub.id, sender: 'korvia', content: shiftMsg,
                   })
                 }
               } catch {}
@@ -346,7 +346,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     if (sub_crew_size)                conflicts.push(`👷 ${sub.company} confirmed ${sub_crew_size} crew for "${task.name}".`)
     if (sub_materials_status === 'not_ordered') conflicts.push(`📦 Materials for "${task.name}" not yet ordered.`)
     if (sub_confirmed)                conflicts.push(`✅ ${sub.company} confirmed schedule for "${task.name}".`)
-    if (downstreamSMSSent > 0)        conflicts.push(`📱 Sofia notified ${downstreamSMSSent} downstream sub(s) via SMS.`)
+    if (downstreamSMSSent > 0)        conflicts.push(`📱 KORVIA notified ${downstreamSMSSent} downstream sub(s) via SMS.`)
 
     if (recentNotes && recentNotes.length > 0 && conflicts.length > 0) {
       const latestNote = recentNotes[0]
@@ -357,7 +357,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       await supabaseAdmin.from('bf_notifications').insert({
         project_id: projectId, task_id: taskId,
         type: 'schedule_conflict',
-        title: `🤖 Sofia: Update from ${sub.company}`,
+        title: `🤖 KORVIA: Update from ${sub.company}`,
         body: conflicts.join('\n'),
         is_read: false,
       })
@@ -389,10 +389,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         .insert({ project_id: projectId, sub_id: subId, sender: 'sub', content: content.trim() })
         .select('id, sender, content, created_at').single()
 
-      const sofiaText = `Got it, ${sub.company}! Your message has been forwarded to the builder. If this involves a schedule change or delay, please also update your task status in the Tasks tab. — 🤖 Sofia`
-      const { data: sofiaMsg } = await supabaseAdmin
+      const korviaText = `Got it, ${sub.company}! Your message has been forwarded to the builder. If this involves a schedule change or delay, please also update your task status in the Tasks tab. — 🤖 KORVIA`
+      const { data: korviaMsg } = await supabaseAdmin
         .from('bf_portal_messages')
-        .insert({ project_id: projectId, sub_id: subId, sender: 'sofia', content: sofiaText })
+        .insert({ project_id: projectId, sub_id: subId, sender: 'korvia', content: korviaText })
         .select('id, sender, content, created_at').single()
 
       await supabaseAdmin.from('bf_notifications').insert({
@@ -403,7 +403,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         is_read: false,
       })
 
-      return NextResponse.json({ ok: true, message: msg, sofiaReply: sofiaMsg })
+      return NextResponse.json({ ok: true, message: msg, korviaReply: korviaMsg })
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })

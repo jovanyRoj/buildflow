@@ -143,7 +143,7 @@ export default function JoinProjectPage() {
       )}
 
       <p className="text-white/40 text-xs text-center w-full">
-        Sofia will text you at {form.phone} when your work phase begins.
+        KORVIA will text you at {form.phone} when your work phase begins.
       </p>
       <img src="/brivox-logo-dark.svg" alt="" className="h-8 w-8 rounded-xl opacity-30 mx-auto"/>
     </div>
@@ -231,7 +231,7 @@ export default function JoinProjectPage() {
                 <Field label="Phone Number *">
                   <input className="input pl-3" placeholder="(405) 555-1234" type="tel"
                     value={form.phone} onChange={e => set('phone', e.target.value)} required/>
-                  <p className="text-xs text-gray-400 mt-1">Sofia will contact you via SMS</p>
+                  <p className="text-xs text-gray-400 mt-1">KORVIA will contact you via SMS</p>
                 </Field>
                 <Field label="Email (optional)">
                   <input className="input" placeholder="you@company.com" type="email"

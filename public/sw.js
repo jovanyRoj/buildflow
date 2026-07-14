@@ -79,7 +79,7 @@ self.addEventListener('fetch', (event) => {
   )
 })
 
-// Push notifications (for future Sofia alerts)
+// Push notifications (for future KORVIA alerts)
 self.addEventListener('push', (event) => {
   if (!event.data) return
   const data = event.data.json()

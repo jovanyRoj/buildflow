@@ -202,7 +202,7 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* Sofia AI banner */}
+      {/* KORVIA AI banner */}
       <div className="mx-4 mt-3 px-3 py-2.5 bg-indigo-50 rounded-xl flex items-center gap-2.5">
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
           <ellipse cx="14" cy="15" rx="11" ry="12" fill="#E8EDF5" stroke="#CBD5E1" strokeWidth="1"/>
@@ -218,7 +218,7 @@ export default function ProjectDetailPage() {
           <circle cx="14" cy="13" r="9.5" stroke="#818CF8" strokeWidth="0.5" strokeDasharray="2 2" opacity="0.5"/>
         </svg>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-indigo-700">Sofia AI is active</p>
+          <p className="text-xs font-semibold text-indigo-700">KORVIA is active</p>
           <p className="text-xs text-indigo-500 truncate">Monitoring subcontractor SMS updates 24/7</p>
         </div>
         <Link href={`/projects/${project.id}/contractors`} className="text-xs text-indigo-600 font-semibold whitespace-nowrap">

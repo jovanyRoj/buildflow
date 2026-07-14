@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { askSofia, SofiaContext } from '@/lib/sofia'
+import { askKorvia, KorviaContext } from '@/lib/korvia'
 import { sendSMS } from '@/lib/sms'
 
 // ─── POST /api/twilio/webhook ─────────────────────────────────────────────────
@@ -14,40 +14,40 @@ export async function POST(req: NextRequest) {
     const from: string = (form.get('From') as string) ?? ''
     const body: string = (form.get('Body') as string) ?? ''
 
-    console.log(`[Sofia] SMS from ${from}: "${body}"`)
+    console.log(`[KORVIA] SMS from ${from}: "${body}"`)
 
     // 1. Look up active task for this phone number
     const ctx = await getContextForPhone(from)
 
     if (!ctx) {
-      // Unknown number — Sofia responds generically
+      // Unknown number — KORVIA responds generically
       twimlReply = 'Hi! This is Brivox. We don\'t have an active task for your number. ' +
         'Contact your builder for access.'
     } else {
-      // 2. Ask Sofia (Claude AI)
-      const sofia = await askSofia(body, ctx)
-      console.log('[Sofia] Response:', sofia)
+      // 2. Ask KORVIA (Claude AI)
+      const korvia = await askKorvia(body, ctx)
+      console.log('[KORVIA] Response:', korvia)
 
       // 3. Execute action in Supabase
-      if (sofia.action === 'update_status' && sofia.newStatus && ctx.taskId) {
-        await updateTaskStatus(ctx, sofia.newStatus, sofia.delayDays ?? 0)
+      if (korvia.action === 'update_status' && korvia.newStatus && ctx.taskId) {
+        await updateTaskStatus(ctx, korvia.newStatus, korvia.delayDays ?? 0)
       }
-      if (sofia.action === 'inspection_update' && sofia.inspectionStatus && ctx.taskId) {
-        await updateInspection(ctx, sofia.inspectionStatus)
+      if (korvia.action === 'inspection_update' && korvia.inspectionStatus && ctx.taskId) {
+        await updateInspection(ctx, korvia.inspectionStatus)
       }
 
       // 4. Log notification in app
-      await logNotification(ctx, sofia)
+      await logNotification(ctx, korvia)
 
       // 5. Alert builder via SMS if high urgency
-      if (sofia.urgency === 'high' && sofia.builderAlert) {
-        await notifyBuilder(ctx, sofia.builderAlert)
+      if (korvia.urgency === 'high' && korvia.builderAlert) {
+        await notifyBuilder(ctx, korvia.builderAlert)
       }
 
-      twimlReply = sofia.reply
+      twimlReply = korvia.reply
     }
   } catch (e: any) {
-    console.error('[Sofia] Webhook error:', e)
+    console.error('[KORVIA] Webhook error:', e)
     twimlReply = 'Brivox received your message. We\'ll follow up shortly.'
   }
 
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
 
 // ─── Supabase lookups ─────────────────────────────────────────────────────────
 
-async function getContextForPhone(phone: string): Promise<SofiaContext | null> {
+async function getContextForPhone(phone: string): Promise<KorviaContext | null> {
   // Normalize phone for comparison
   const normalized = phone.replace(/\D/g, '')
 
@@ -148,7 +148,7 @@ async function getContextForPhone(phone: string): Promise<SofiaContext | null> {
 // ─── Task updates ─────────────────────────────────────────────────────────────
 
 async function updateTaskStatus(
-  ctx: SofiaContext,
+  ctx: KorviaContext,
   newStatus: string,
   delayDays: number
 ) {
@@ -179,7 +179,7 @@ async function updateTaskStatus(
   })
 }
 
-async function updateInspection(ctx: SofiaContext, inspectionStatus: string) {
+async function updateInspection(ctx: KorviaContext, inspectionStatus: string) {
   await supabaseAdmin
     .from('bf_tasks')
     .update({ inspection_status: inspectionStatus, updated_at: new Date().toISOString() })
@@ -196,11 +196,11 @@ async function updateInspection(ctx: SofiaContext, inspectionStatus: string) {
   })
 }
 
-async function logNotification(ctx: SofiaContext, sofia: any) {
+async function logNotification(ctx: KorviaContext, korvia: any) {
   const icons: Record<string, string> = {
-    update_status: sofia.newStatus === 'completed' ? '✅' : sofia.newStatus === 'delayed' ? '⚠️' : '🔨',
+    update_status: korvia.newStatus === 'completed' ? '✅' : korvia.newStatus === 'delayed' ? '⚠️' : '🔨',
     flag_blocker: '🚨',
-    inspection_update: sofia.inspectionStatus === 'passed' ? '✅' : '📋',
+    inspection_update: korvia.inspectionStatus === 'passed' ? '✅' : '📋',
     answer_question: '💬',
     no_action: '📩',
   }
@@ -209,15 +209,15 @@ async function logNotification(ctx: SofiaContext, sofia: any) {
     id: crypto.randomUUID(),
     project_id: ctx.projectId,
     task_id: ctx.taskId,
-    type: sofia.urgency === 'high' ? 'alert' : 'subcontractor',
-    title: `${icons[sofia.action] ?? '📩'} ${ctx.subName || 'Sub'} — ${ctx.taskName}`,
-    body: sofia.builderAlert ?? sofia.reply,
+    type: korvia.urgency === 'high' ? 'alert' : 'subcontractor',
+    title: `${icons[korvia.action] ?? '📩'} ${ctx.subName || 'Sub'} — ${ctx.taskName}`,
+    body: korvia.builderAlert ?? korvia.reply,
     is_read: false,
     created_at: new Date().toISOString(),
   })
 }
 
-async function notifyBuilder(ctx: SofiaContext, alertMessage: string) {
+async function notifyBuilder(ctx: KorviaContext, alertMessage: string) {
   // Get builder's phone from bf_users (if stored)
   const { data: user } = await supabaseAdmin
     .from('bf_users')

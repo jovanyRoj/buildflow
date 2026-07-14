@@ -4,7 +4,7 @@ import { sendSMS, smsTaskDelayed, smsParallelWork, smsScheduleShifted } from '@/
 
 type Ctx = { params: Promise<{ projectId: string; subId: string }> }
 
-const SOFIA_SCHEDULE_PROMPT = `You are Sofia, an AI construction project coordinator for Brivox.
+const KORVIA_SCHEDULE_PROMPT = `You are KORVIA, an AI construction project coordinator for Brivox.
 A subcontractor has sent you a message about a delay or issue on their task.
 You have access to the task schedule and recent builder notifications for context.
 
@@ -71,7 +71,7 @@ ${builderNotes || '(none)'}
 MESSAGE FROM SUBCONTRACTOR:
 "${message}"
 
-Analyze and respond as Sofia.`
+Analyze and respond as KORVIA.`
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -84,7 +84,7 @@ Analyze and respond as Sofia.`
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 450,
-        system: SOFIA_SCHEDULE_PROMPT,
+        system: KORVIA_SCHEDULE_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
       }),
     })
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       .from('bf_projects').select('id, name').eq('id', projectId).maybeSingle()
     const projectName = project?.name ?? 'the project'
 
-    // ── Fetch recent builder notes for Sofia context ──
+    // ── Fetch recent builder notes for KORVIA context ──
     const { data: recentNotifs } = await supabaseAdmin
       .from('bf_notifications')
       .select('title, body, created_at')
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       ?.map(n => `[${new Date(n.created_at).toLocaleDateString()}] ${n.title}: ${n.body.slice(0, 150)}`)
       .join('\n') ?? ''
 
-    // ── Call Sofia with full context ──
+    // ── Call KORVIA with full context ──
     const sofiaResult = await callSofia(
       message,
       task.name,
@@ -230,9 +230,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       sofiaResult?.reason_summary ? `📋 Reason: ${sofiaResult.reason_summary}` : null,
       delayDays > 0 ? `⏰ ${delayDays} day(s) delay on "${task.name}"` : null,
       downstreamNotified > 0 && downstreamAction === 'postpone'
-        ? `🔁 Sofia shifted ${downstreamNotified} downstream task(s) +${delayDays}d and sent SMS` : null,
+        ? `🔁 KORVIA shifted ${downstreamNotified} downstream task(s) +${delayDays}d and sent SMS` : null,
       downstreamNotified > 0 && downstreamAction === 'parallel'
-        ? `🔀 Sofia notified next sub to work in parallel` : null,
+        ? `🔀 KORVIA notified next sub to work in parallel` : null,
       builderNotes
         ? `📋 Context: ${builderNotes.split('\n')[0].slice(0, 120)}` : null,
     ].filter(Boolean)
@@ -240,14 +240,14 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     await supabaseAdmin.from('bf_notifications').insert({
       project_id: projectId, task_id: taskId,
       type: 'schedule_conflict',
-      title: `🤖 Sofia: ${builderAlert}`,
+      title: `🤖 KORVIA: ${builderAlert}`,
       body: notifLines.join('\n'),
       is_read: false,
     })
 
     return NextResponse.json({
       ok: true,
-      sofiaReply: reply,
+      korviaReply: reply,
       delayDays,
       downstreamNotified,
       downstreamAction,
