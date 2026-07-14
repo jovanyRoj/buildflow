@@ -82,6 +82,14 @@ export default function GuestPortal() {
   // task status
   const [statusSaving, setStatusSaving] = useState<string|null>(null)
 
+  // date edits (project info tab)
+  const [dateEdits, setDateEdits]   = useState<Record<string,{sub_start_date:string;sub_end_date:string;sub_notes:string}>>({})
+  const [dateSaving, setDateSaving] = useState<string|null>(null)
+  const [dateSaved, setDateSaved]   = useState<string|null>(null)
+
+  // file upload per task
+  const [uploads, setUploads]       = useState<Record<string,{file:File|null;notes:string;uploading:boolean;done:boolean}>>({})
+
   // estimate
   const [estimates, setEstimates]     = useState<Estimate[]>([])
   const [estSaving, setEstSaving]     = useState(false)
@@ -305,6 +313,54 @@ export default function GuestPortal() {
   }
 
 
+  // ── date save (info tab) ────────────────────────────────────────────────
+  async function handleDateSave(taskId: string) {
+    const task = data?.tasks?.find((t: any) => t.id === taskId)
+    const edit = dateEdits[taskId] ?? {
+      sub_start_date: task?.sub_start_date ?? task?.start_date ?? '',
+      sub_end_date:   task?.sub_end_date   ?? task?.end_date   ?? '',
+      sub_notes: '',
+    }
+    setDateSaving(taskId)
+    try {
+      await fetch(`/api/portal/${projectId}/${subId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId,
+          sub_start_date: edit.sub_start_date || null,
+          sub_end_date:   edit.sub_end_date   || null,
+        }),
+      })
+      setData((d: any) => ({ ...d, tasks: d.tasks.map((t: any) =>
+        t.id === taskId ? { ...t, sub_start_date: edit.sub_start_date, sub_end_date: edit.sub_end_date } : t
+      )}))
+      setDateSaved(taskId); setTimeout(() => setDateSaved(null), 2500)
+    } finally { setDateSaving(null) }
+  }
+
+  // ── file upload ──────────────────────────────────────────────────────────
+  async function handleUpload(taskId: string) {
+    const up = uploads[taskId]; if (!up?.file) return
+    setUploads(s => ({ ...s, [taskId]: { ...up, uploading: true, done: false } }))
+    try {
+      const fd = new FormData()
+      fd.append('file', up.file)
+      fd.append('taskId', taskId)
+      if (up.notes) fd.append('notes', up.notes)
+      const res = await fetch(`/api/portal/${projectId}/${subId}/upload`, { method: 'POST', body: fd })
+      const json = await res.json()
+      if (json.ok) {
+        setUploads(s => ({ ...s, [taskId]: { file: null, notes: '', uploading: false, done: true } }))
+        setData((d: any) => ({ ...d, files: [...(d.files ?? []), json.file] }))
+        setTimeout(() => setUploads(s => ({ ...s, [taskId]: { ...s[taskId], done: false } })), 3000)
+      } else {
+        setUploads(s => ({ ...s, [taskId]: { ...up, uploading: false } }))
+      }
+    } catch {
+      setUploads(s => ({ ...s, [taskId]: { ...up, uploading: false } }))
+    }
+  }
+
   // ── loading / error ──────────────────────────────────────────────────────
   if (loading || !authChecked) return (
     <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center gap-4">
@@ -457,6 +513,54 @@ export default function GuestPortal() {
               </p>
             </div>
           </div>
+          {/* Per-task date editing */}
+          {tasks.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-4 pt-4 pb-2.5 border-b border-gray-50">
+                <p className="text-xs font-semibold text-gray-500">📅 YOUR TASK DATES</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Update your start/end — KORVIA will notify your builder and any overlapping subs automatically.
+                </p>
+              </div>
+              {tasks.map((task: any) => {
+                const edit = dateEdits[task.id] ?? {
+                  sub_start_date: task.sub_start_date ?? task.start_date ?? '',
+                  sub_end_date:   task.sub_end_date   ?? task.end_date   ?? '',
+                  sub_notes: '',
+                }
+                const isSaving = dateSaving === task.id
+                const isSaved  = dateSaved  === task.id
+                return (
+                  <div key={task.id} className="px-4 py-3 border-b border-gray-50 last:border-0">
+                    <p className="text-xs font-bold text-[#1A2B4A] mb-2.5">{task.name}</p>
+                    <div className="grid grid-cols-2 gap-2 mb-2.5">
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">Start date</p>
+                        <input type="date"
+                          value={edit.sub_start_date}
+                          onChange={e => setDateEdits(s => ({ ...s, [task.id]: { ...edit, sub_start_date: e.target.value } }))}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs text-[#1A2B4A] focus:outline-none focus:border-blue-400"/>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">End date</p>
+                        <input type="date"
+                          value={edit.sub_end_date}
+                          onChange={e => setDateEdits(s => ({ ...s, [task.id]: { ...edit, sub_end_date: e.target.value } }))}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs text-[#1A2B4A] focus:outline-none focus:border-blue-400"/>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDateSave(task.id)} disabled={isSaving}
+                      className={`w-full py-2 rounded-xl text-xs font-bold transition ${
+                        isSaved ? 'bg-green-500 text-white' : 'bg-[#2E7CF6] text-white active:scale-[0.97]'
+                      } disabled:opacity-60`}>
+                      {isSaving ? 'Saving…' : isSaved ? '✅ Saved! KORVIA notified' : '📅 Save Dates'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
             className="w-full py-3.5 rounded-2xl bg-[#1A2B4A] text-white font-bold text-sm flex items-center justify-center gap-2">
             <svg width="16" height="16" fill="none" stroke="white" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -534,6 +638,62 @@ export default function GuestPortal() {
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  {/* ── File upload ── */}
+                  <div className="px-4 pb-4 pt-1 border-t border-gray-50">
+                    <p className="text-xs font-semibold text-gray-500 mb-2 mt-2">📎 FILES &amp; PHOTOS</p>
+
+                    {/* Existing uploaded files for this task */}
+                    {(files ?? []).filter((f: any) => f.task_id === task.id).length > 0 && (
+                      <div className="flex flex-col gap-1.5 mb-3">
+                        {(files ?? []).filter((f: any) => f.task_id === task.id).map((f: any) => (
+                          <a key={f.id} href={f.file_url} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 text-xs text-blue-600 hover:bg-blue-50 transition">
+                            <span>{f.file_type?.startsWith('image') ? '🖼️' : '📄'}</span>
+                            <span className="flex-1 truncate">{f.file_name}</span>
+                            {f.notes && <span className="text-gray-400 truncate max-w-[80px]">{f.notes}</span>}
+                            <span className="text-gray-400 shrink-0">↗</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Upload control */}
+                    {(() => {
+                      const up = uploads[task.id] ?? { file: null, notes: '', uploading: false, done: false }
+                      return (
+                        <div className="flex flex-col gap-2">
+                          <label className={`flex items-center gap-2 border border-dashed rounded-xl px-3 py-2.5 cursor-pointer transition ${
+                            up.file ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-blue-300'
+                          }`}>
+                            <span className="text-base">{up.file ? '📁' : '📸'}</span>
+                            <span className="text-xs text-gray-500 flex-1 truncate">
+                              {up.file ? up.file.name : 'Choose photo or PDF…'}
+                            </span>
+                            <input type="file" accept="image/*,application/pdf" className="sr-only"
+                              onChange={e => {
+                                const f = e.target.files?.[0] ?? null
+                                setUploads(s => ({ ...s, [task.id]: { ...(s[task.id] ?? { notes: '', uploading: false, done: false }), file: f, done: false } }))
+                              }}/>
+                          </label>
+                          {up.file && (
+                            <>
+                              <input placeholder="Notes about this file (optional)…"
+                                value={up.notes}
+                                onChange={e => setUploads(s => ({ ...s, [task.id]: { ...up, notes: e.target.value } }))}
+                                className="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 focus:outline-none focus:border-blue-400"/>
+                              <button onClick={() => handleUpload(task.id)} disabled={up.uploading}
+                                className={`w-full py-2.5 rounded-xl text-xs font-bold transition ${
+                                  up.done ? 'bg-green-500 text-white' : 'bg-[#1A2B4A] text-white active:scale-[0.97]'
+                                } disabled:opacity-60`}>
+                                {up.uploading ? 'Uploading…' : up.done ? '✅ Uploaded!' : '⬆️ Upload File'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               )

@@ -30,14 +30,14 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
     const { data: tasks } = await supabaseAdmin
       .from('bf_tasks')
-      .select('id, name, status, start_date, end_date, sub_start_date, sub_end_date, sub_notes, sub_crew_size, sub_materials_status, sub_confirmed, notes, portal_token, delay_days, inspection_required, inspection_status, task_order')
+      .select('id, name, status, start_date, end_date, sub_start_date, sub_end_date, sub_notes, sub_crew_size, sub_materials_status, sub_confirmed, notes, portal_token, delay_days, inspection_required, inspection_status, task_order, sub_arrival_time, sub_work_days, sub_schedule_notes')
       .eq('project_id', projectId)
       .or(`assigned_to.eq.${sub.company},subcontractor_phone.eq.${sub.phone}`)
       .order('task_order', { ascending: true })
 
     const { data: files } = await supabaseAdmin
       .from('bf_project_files')
-      .select('id, name, category, file_url, file_size, file_type, uploaded_at')
+      .select('id, name, category, file_url, file_size, file_type, uploaded_at, task_id, uploaded_by_sub, notes')
       .eq('project_id', projectId)
       .order('uploaded_at', { ascending: false })
 
@@ -361,6 +361,70 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
         body: conflicts.join('\n'),
         is_read: false,
       })
+    }
+
+    // ── SMS builder when sub changes their dates ───────────────────────────
+    const datesChanged = (sub_start_date !== undefined || sub_end_date !== undefined)
+    if (datesChanged) {
+      const { data: builder } = await supabaseAdmin
+        .from('bf_users').select('name, phone').eq('id',
+          (await supabaseAdmin.from('bf_projects').select('user_id').eq('id', projectId).single()).data?.user_id ?? ''
+        ).maybeSingle()
+
+      if (builder?.phone) {
+        const fmt = (d: string) => {
+          try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) } catch { return d }
+        }
+        const newStart = sub_start_date || task.start_date
+        const newEnd   = sub_end_date   || task.end_date
+        const builderSms = [
+          `📅 KORVIA — Schedule Update`,
+          `Project: ${projectName}`,
+          `Task: "${task.name}"`,
+          `Sub: ${sub.company}`,
+          `New dates: ${fmt(newStart)} → ${fmt(newEnd)}`,
+          sub_notes?.trim() ? `Note: "${sub_notes.trim()}"` : null,
+        ].filter(Boolean).join('\n')
+        await sendSMS(builder.phone, builderSms)
+      }
+
+      // ── SMS parallel subs (overlapping date window) ──────────────────────
+      const effectiveStart = sub_start_date || task.start_date
+      const effectiveEnd2  = sub_end_date   || task.end_date
+      if (effectiveStart && effectiveEnd2) {
+        const { data: parallelTasks } = await supabaseAdmin
+          .from('bf_tasks')
+          .select('id, name, start_date, end_date, subcontractor_phone, assigned_to')
+          .eq('project_id', projectId)
+          .neq('id', taskId)
+          .not('subcontractor_phone', 'is', null)
+          .lte('start_date', effectiveEnd2)
+          .gte('end_date', effectiveStart)
+          .limit(5)
+
+        for (const pt of parallelTasks ?? []) {
+          if (!pt.subcontractor_phone) continue
+          const parallelSms = [
+            `📅 KORVIA — Heads up from Brivox`,
+            `A parallel trade ("${task.name}" — ${sub.company}) at ${projectName} has updated their schedule.`,
+            `Their new window: ${effectiveStart} → ${effectiveEnd2}.`,
+            `This overlaps with your task: "${pt.name}".`,
+            `Coordinate with your builder if needed. Reply HELP to chat with KORVIA.`,
+          ].join('\n')
+          await sendSMS(pt.subcontractor_phone, parallelSms)
+          downstreamSMSSent++
+          // Mirror to portal messages
+          try {
+            const { data: ptSub } = await supabaseAdmin.from('bf_subcontractors')
+              .select('id').eq('project_id', projectId).eq('phone', pt.subcontractor_phone).maybeSingle()
+            if (ptSub) {
+              await supabaseAdmin.from('bf_portal_messages').insert({
+                project_id: projectId, sub_id: ptSub.id, sender: 'korvia', content: parallelSms,
+              })
+            }
+          } catch {}
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, conflicts, downstreamSMSSent })
