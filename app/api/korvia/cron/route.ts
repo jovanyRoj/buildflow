@@ -12,8 +12,8 @@ import { buildKorviaTaskReminder, KorviaContext } from '@/lib/korvia'
 export async function GET(req: NextRequest) {
   // Vercel adds this header on cron calls
   const isVercelCron = req.headers.get('x-vercel-cron') === '1'
-  const isSofia = req.headers.get('x-sofia-secret') === process.env.SOFIA_SECRET
-  if (!isVercelCron && !isSofia && process.env.NODE_ENV === 'production') {
+  const isKorvia = req.headers.get('x-korvia-secret') === process.env.KORVIA_SECRET
+  if (!isVercelCron && !isKorvia && process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -36,7 +36,7 @@ RULES:
 - downstream_action="none": no downstream impact
 - If the issue is external (supplier, weather, inspection fail) emphasize urgency in builder_alert`
 
-interface SofiaScheduleResponse {
+interface KorviaScheduleResponse {
   delay_days: number
   new_status: string | null
   new_sub_start_date: string | null
@@ -48,7 +48,7 @@ interface SofiaScheduleResponse {
   downstream_note: string | null
 }
 
-async function callSofia(
+async function callKorvia(
   message: string,
   taskName: string,
   originalStart: string | null,
@@ -56,7 +56,7 @@ async function callSofia(
   subName: string,
   projectName: string,
   builderNotes: string
-): Promise<SofiaScheduleResponse | null> {
+): Promise<KorviaScheduleResponse | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return null
 
@@ -92,7 +92,7 @@ Analyze and respond as KORVIA.`
     const data = await res.json()
     const text: string = data.content?.[0]?.text ?? ''
     const clean = text.replace(/```json|```/g, '').trim()
-    return JSON.parse(clean) as SofiaScheduleResponse
+    return JSON.parse(clean) as KorviaScheduleResponse
   } catch { return null }
 }
 
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       .join('\n') ?? ''
 
     // ── Call KORVIA with full context ──
-    const sofiaResult = await callSofia(
+    const korviaResult = await callKorvia(
       message,
       task.name,
       task.sub_start_date || task.start_date,
@@ -161,21 +161,21 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       ? `Recibido, ${sub.name || sub.company}. Tu mensaje fue registrado y el builder fue notificado.`
       : `Got it, ${sub.name || sub.company}. Your message was recorded and your builder has been notified.`
 
-    const reply = sofiaResult?.sub_reply ?? fallbackReply
-    const delayDays = sofiaResult?.delay_days ?? 0
+    const reply = korviaResult?.sub_reply ?? fallbackReply
+    const delayDays = korviaResult?.delay_days ?? 0
 
     // ── Update current task ──
     const taskUpdate: Record<string, unknown> = { sub_notes: message }
-    if (sofiaResult?.new_status)         taskUpdate.status         = sofiaResult.new_status
-    if (sofiaResult?.new_sub_start_date) taskUpdate.sub_start_date = sofiaResult.new_sub_start_date
-    if (sofiaResult?.new_sub_end_date)   taskUpdate.sub_end_date   = sofiaResult.new_sub_end_date
+    if (korviaResult?.new_status)         taskUpdate.status         = korviaResult.new_status
+    if (korviaResult?.new_sub_start_date) taskUpdate.sub_start_date = korviaResult.new_sub_start_date
+    if (korviaResult?.new_sub_end_date)   taskUpdate.sub_end_date   = korviaResult.new_sub_end_date
     if (delayDays > 0)                   taskUpdate.delay_days     = delayDays
 
     await supabaseAdmin.from('bf_tasks').update(taskUpdate).eq('id', taskId)
 
     // ── Get downstream tasks ──
     let downstreamNotified = 0
-    const downstreamAction = sofiaResult?.downstream_action ?? 'none'
+    const downstreamAction = korviaResult?.downstream_action ?? 'none'
 
     if (task.task_order !== null && downstreamAction !== 'none') {
       const { data: downstreamTasks } = await supabaseAdmin
@@ -202,8 +202,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             }).eq('id', dt.id)
 
             if (dt.subcontractor_phone) {
-              const smsBody = i === 0 && sofiaResult?.downstream_note
-                ? `📅 Brivox — ${sofiaResult.downstream_note} "${dt.name}" moved to ${newStart} at ${projectName}.`
+              const smsBody = i === 0 && korviaResult?.downstream_note
+                ? `📅 Brivox — ${korviaResult.downstream_note} "${dt.name}" moved to ${newStart} at ${projectName}.`
                 : smsTaskDelayed(task.name, dt.name, delayDays, newStart, projectName)
               await sendSMS(dt.subcontractor_phone, smsBody)
               downstreamNotified++
@@ -211,8 +211,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
           } else if (downstreamAction === 'parallel') {
             // Don't shift dates — but SMS to coordinate
             if (dt.subcontractor_phone && i === 0) {
-              const smsBody = sofiaResult?.downstream_note
-                ? `🔀 Brivox — ${sofiaResult.downstream_note} Coordinate with "${task.name}" team at ${projectName}.`
+              const smsBody = korviaResult?.downstream_note
+                ? `🔀 Brivox — ${korviaResult.downstream_note} Coordinate with "${task.name}" team at ${projectName}.`
                 : smsParallelWork(task.name, dt.name, projectName)
               await sendSMS(dt.subcontractor_phone, smsBody)
               downstreamNotified++
@@ -224,10 +224,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     }
 
     // ── Builder notification ──
-    const builderAlert = sofiaResult?.builder_alert ?? `${sub.company} reported an issue on "${task.name}".`
+    const builderAlert = korviaResult?.builder_alert ?? `${sub.company} reported an issue on "${task.name}".`
     const notifLines = [
       `📨 ${sub.company}: "${message.slice(0, 120)}${message.length > 120 ? '…' : ''}"`,
-      sofiaResult?.reason_summary ? `📋 Reason: ${sofiaResult.reason_summary}` : null,
+      korviaResult?.reason_summary ? `📋 Reason: ${korviaResult.reason_summary}` : null,
       delayDays > 0 ? `⏰ ${delayDays} day(s) delay on "${task.name}"` : null,
       downstreamNotified > 0 && downstreamAction === 'postpone'
         ? `🔁 KORVIA shifted ${downstreamNotified} downstream task(s) +${delayDays}d and sent SMS` : null,
@@ -252,8 +252,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       downstreamNotified,
       downstreamAction,
       newDates: {
-        sub_start_date: sofiaResult?.new_sub_start_date ?? null,
-        sub_end_date:   sofiaResult?.new_sub_end_date   ?? null,
+        sub_start_date: korviaResult?.new_sub_start_date ?? null,
+        sub_end_date:   korviaResult?.new_sub_end_date   ?? null,
       },
     })
   } catch (e: any) {

@@ -14,8 +14,8 @@ import { buildKorviaTaskReminder, buildKorviaInspectionReminder, KorviaContext }
 
 export async function POST(req: NextRequest) {
   // Verify internal secret so only Brivox can trigger this
-  const secret = req.headers.get('x-sofia-secret')
-  if (secret !== process.env.SOFIA_SECRET && process.env.NODE_ENV === 'production') {
+  const secret = req.headers.get('x-korvia-secret')
+  if (secret !== process.env.KORVIA_SECRET && process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
   } catch (e: any) {
-    console.error('[Sofia/notify]', e)
+    console.error('[KORVIA/notify]', e)
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 })
   }
 }
@@ -177,7 +177,7 @@ async function sendDailyReport(userId: string) {
     `📊 ${active} active | ${delayed} delayed\n` +
     `📈 Avg progress: ${avgProg}%\n` +
     (delayed > 0 ? `⚠️ Delayed: ${delayedNames}\n` : '') +
-    `\nSofia is monitoring all projects. 🤖`
+    `\nKORVIA is monitoring all projects. 🤖`
 
   const result = await sendSMS(user.phone, report)
   return NextResponse.json({ ok: result.ok, report })

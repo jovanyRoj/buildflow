@@ -26,7 +26,7 @@ export interface KorviaContext {
   recentPortalMessages?: { sender: string; content: string; created_at: string }[]
 }
 
-export interface SofiaResponse {
+export interface KorviaResponse {
   action: 'update_status' | 'flag_blocker' | 'inspection_update' | 'answer_question' | 'no_action'
   reply: string             // SMS back to subcontractor (≤160 chars)
   newStatus?: 'in_progress' | 'completed' | 'delayed' | null
@@ -75,7 +75,7 @@ RULES:
 export async function askKorvia(
   message: string,
   ctx: KorviaContext
-): Promise<SofiaResponse> {
+): Promise<KorviaResponse> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     console.error('ANTHROPIC_API_KEY not set — KORVIA is offline')
@@ -111,9 +111,9 @@ export async function askKorvia(
 
     // Strip any accidental markdown code fences
     const clean = text.replace(/```json|```/g, '').trim()
-    return JSON.parse(clean) as SofiaResponse
+    return JSON.parse(clean) as KorviaResponse
   } catch (e) {
-    console.error('Sofia error:', e)
+    console.error('KORVIA error:', e)
     return fallbackResponse(message)
   }
 }
@@ -167,7 +167,7 @@ function buildPrompt(message: string, ctx: KorviaContext): string {
   ].join('\n')
 }
 
-function fallbackResponse(message: string): SofiaResponse {
+function fallbackResponse(message: string): KorviaResponse {
   const isSpanish = /[áéíóúüñ¿¡]/i.test(message) ||
     /\b(hola|gracias|listo|trabajo|días|retraso)\b/i.test(message)
 
@@ -185,13 +185,13 @@ function fallbackResponse(message: string): SofiaResponse {
 }
 
 // ─── Proactive message builder ────────────────────────────────────────────────
-// Used by /api/korvia/notify to send Sofia-crafted messages proactively
+// Used by /api/korvia/notify to send KORVIA-crafted messages proactively
 
 export function buildKorviaTaskReminder(ctx: KorviaContext, daysUntilStart: number): string {
   const emoji = daysUntilStart === 0 ? '🔨' : '📅'
   const when = daysUntilStart === 0 ? 'TODAY' : `in ${daysUntilStart} day${daysUntilStart > 1 ? 's' : ''}`
   return `${emoji} Brivox — Hi ${ctx.subName || 'there'}!\n` +
-    `Sofia here. Your task "${ctx.taskName}" at ${ctx.projectName} starts ${when}.\n` +
+    `KORVIA here. Your task "${ctx.taskName}" at ${ctx.projectName} starts ${when}.\n` +
     `📍 ${ctx.projectAddress}\n` +
     `Reply START when you begin or DELAY if needed.`
 }
