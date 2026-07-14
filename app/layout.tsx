@@ -3,7 +3,7 @@ import Script from 'next/script'
 import './globals.css'
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'https://buildflow-eight-sigma.vercel.app'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'https://brivox-jovanyrojs-projects.vercel.app'),
   title: 'Brivox – Construction Management',
   description: 'Construction project management with AI coordination for residential builders',
   manifest: '/manifest.json',
