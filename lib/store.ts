@@ -272,6 +272,25 @@ export const useBrivoxStore = create<BrivoxStore>()((set, get) => ({
       if (allHistory.length) addHistory(allHistory)
       if (allNotifs.length) addNotifications(allNotifs)
 
+      // KORVIA auto-notify: sub assigned to this project for the first time
+      const newPhone = data.subcontractorPhone
+      const oldPhone = oldTask.subcontractorPhone
+      if (newPhone && newPhone !== oldPhone && typeof window !== 'undefined') {
+        const updatedTask = updatedTasks.find(t => t.id === taskId)
+        fetch('/api/korvia/assign-sub', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskId,
+            projectId,
+            subPhone: newPhone,
+            subName:  updatedTask?.assignedTo ?? data.assignedTo ?? '',
+            taskName: updatedTask?.name ?? oldTask.name,
+            projectName: project.name,
+          }),
+        }).catch(() => {})
+      }
+
       return {
         projects: state.projects.map(p => p.id === projectId ? updatedProject : p),
       }
