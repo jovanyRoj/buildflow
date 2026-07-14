@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
-type Params = { projectId: string; subId: string }
+type Ctx = { params: Promise<{ projectId: string; subId: string }> }
 
 // ── POST — save schedule for a specific task ──────────────────────────────
-export async function POST(req: NextRequest, { params }: { params: Params }) {
-  const { projectId, subId } = params
+export async function POST(req: NextRequest, { params }: Ctx) {
+  const { projectId, subId } = await params
   const body = await req.json()
   const { task_id, sub_arrival_time, sub_work_days, sub_schedule_notes } = body as {
     task_id: string

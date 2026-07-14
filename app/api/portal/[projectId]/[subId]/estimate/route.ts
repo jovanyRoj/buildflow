@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
-type Params = { projectId: string; subId: string }
+type Ctx = { params: Promise<{ projectId: string; subId: string }> }
 
 // ── GET — fetch existing estimates for this sub/project ────────────────────
-export async function GET(_req: NextRequest, { params }: { params: Params }) {
-  const { projectId, subId } = params
+export async function GET(_req: NextRequest, { params }: Ctx) {
+  const { projectId, subId } = await params
 
   // Verify sub belongs to project
   const { data: sub } = await supabaseAdmin
@@ -23,8 +23,8 @@ export async function GET(_req: NextRequest, { params }: { params: Params }) {
 }
 
 // ── POST — submit or update an estimate ───────────────────────────────────
-export async function POST(req: NextRequest, { params }: { params: Params }) {
-  const { projectId, subId } = params
+export async function POST(req: NextRequest, { params }: Ctx) {
+  const { projectId, subId } = await params
   const body = await req.json()
   const { type, task_id, amount, notes } = body as {
     type: 'project' | 'task'; task_id?: string; amount: number; notes?: string

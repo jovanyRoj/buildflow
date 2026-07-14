@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendSMS } from '@/lib/sms'
 
-type Params = { projectId: string; subId: string }
+type Ctx = { params: Promise<{ projectId: string; subId: string }> }
 
 const REPORT_LABELS: Record<string, string> = {
   material_missing:  '📦 Material Missing',
@@ -18,8 +18,8 @@ const URGENCY_LABELS: Record<string, string> = {
   emergency: ' 🆘 EMERGENCY',
 }
 
-export async function POST(req: NextRequest, { params }: { params: Params }) {
-  const { projectId, subId } = params
+export async function POST(req: NextRequest, { params }: Ctx) {
+  const { projectId, subId } = await params
   const body = await req.json()
   const { type, task_id, description, urgency = 'normal' } = body as {
     type: string; task_id?: string; description: string; urgency?: string
