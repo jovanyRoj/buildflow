@@ -3,983 +3,848 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { format, parseISO, differenceInDays, isToday } from 'date-fns'
 
-// ─── constants ────────────────────────────────────────────────────────────────
-const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  pending:     { label: 'Not started',    color: 'bg-gray-100 text-gray-500' },
-  active:      { label: 'Ready to start', color: 'bg-blue-100 text-blue-600' },
-  in_progress: { label: 'In progress',    color: 'bg-orange-100 text-orange-600' },
-  delayed:     { label: 'Delayed',        color: 'bg-red-100 text-red-600' },
-  completed:   { label: 'Completed',      color: 'bg-green-100 text-green-700' },
-}
-const SUB_STATUS_OPTIONS = [
-  { value: 'in_progress',     label: '🟢 On Track',       color: 'border-green-400 bg-green-50 text-green-700' },
-  { value: 'completed',       label: '✅ Completed',       color: 'border-emerald-400 bg-emerald-50 text-emerald-700' },
-  { value: 'pending',         label: '⏳ Pending',         color: 'border-gray-300 bg-gray-50 text-gray-600' },
-  { value: 'delayed',         label: '🔴 Delayed',         color: 'border-red-400 bg-red-50 text-red-700' },
-  { value: 'fail_inspection', label: '❌ Fail Inspection', color: 'border-red-500 bg-red-100 text-red-800' },
+const STATUS_OPTIONS = [
+  { value: 'in_progress',     label: '🟢 On Track',       cls: 'border-green-400 bg-green-50 text-green-700' },
+  { value: 'completed',       label: '✅ Completed',       cls: 'border-emerald-400 bg-emerald-50 text-emerald-700' },
+  { value: 'pending',         label: '⏳ Pending',         cls: 'border-gray-300 bg-gray-50 text-gray-600' },
+  { value: 'delayed',         label: '🔴 Delayed',         cls: 'border-red-400 bg-red-50 text-red-700' },
+  { value: 'fail_inspection', label: '❌ Fail Inspection', cls: 'border-red-500 bg-red-100 text-red-800' },
 ]
 const WORK_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 const REPORT_TYPES = [
-  { value: 'material_missing',  label: '📦 Missing Material',   desc: 'Material the builder needs to purchase' },
-  { value: 'safety_concern',    label: '⚠️ Safety Concern',     desc: 'Unsafe condition on site' },
-  { value: 'schedule_conflict', label: '📅 Schedule Conflict',  desc: 'Timing conflict with another trade' },
-  { value: 'damage',            label: '🔨 Damage Found',       desc: 'Existing damage or defect found' },
-  { value: 'other',             label: '📝 Other',              desc: 'General report or note' },
+  { value: 'material_missing',  label: '📦 Missing Material',  desc: 'Material the builder needs to purchase' },
+  { value: 'safety_concern',    label: '⚠️ Safety Concern',    desc: 'Unsafe condition on site' },
+  { value: 'schedule_conflict', label: '📅 Schedule Conflict', desc: 'Timing conflict with another trade' },
+  { value: 'damage',            label: '🔨 Damage Found',      desc: 'Existing damage or defect found' },
+  { value: 'other',             label: '📝 Other',             desc: 'General report or note' },
 ]
 
-// ─── types ────────────────────────────────────────────────────────────────────
-interface PortalMessage { id: string; sender: 'sub' | 'korvia'; content: string; created_at: string }
-interface Estimate { id?: string; type: 'project' | 'task'; task_id?: string; amount: string; notes: string }
+interface PortalMessage { id: string; sender: 'sub'|'korvia'; content: string; created_at: string }
+interface Estimate { id?: string; type: 'project'|'task'; task_id?: string; amount: string; notes: string }
 interface Schedule { sub_arrival_time: string; sub_work_days: string[]; sub_schedule_notes: string }
-interface ReportForm { type: string; task_id: string; description: string; urgency: string }
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
-function fmtMoney(n: number | null | undefined) {
+function fmtMoney(n: number|null|undefined) {
   if (!n && n !== 0) return null
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n)
 }
-function daysLabel(dateStr?: string | null) {
-  if (!dateStr) return null
+function daysLabel(d?: string|null) {
+  if (!d) return null
   try {
-    const d = parseISO(dateStr)
-    if (isToday(d)) return { text: 'Today', cls: 'text-orange-500' }
-    const diff = differenceInDays(d, new Date())
-    if (diff < 0) return { text: `${Math.abs(diff)}d ago`, cls: 'text-red-500' }
-    return { text: `in ${diff}d`, cls: 'text-blue-500' }
+    const dt = parseISO(d)
+    if (isToday(dt)) return { text:'Today', cls:'text-orange-500' }
+    const diff = differenceInDays(dt, new Date())
+    if (diff < 0) return { text:`${Math.abs(diff)}d ago`, cls:'text-red-500' }
+    return { text:`in ${diff}d`, cls:'text-blue-500' }
   } catch { return null }
 }
-function Row({ label, value }: { label: string; value?: string | null }) {
+function Row({ label, value }: { label:string; value?:string|null }) {
   if (!value) return null
   return (
     <div className="flex justify-between items-start gap-4">
-      <span className="text-gray-400 shrink-0">{label}</span>
-      <span className="text-[#1A2B4A] font-medium text-right">{value}</span>
+      <span className="text-gray-400 shrink-0 text-sm">{label}</span>
+      <span className="text-[#1A2B4A] font-medium text-sm text-right">{value}</span>
     </div>
   )
 }
-
-// ─── main component ───────────────────────────────────────────────────────────
-export default function GuestPortal() {
-  const { projectId, subId } = useParams() as { projectId: string; subId: string }
-  const [data, setData]         = useState<any>(null)
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState('')
-  const [tab, setTab]           = useState<'info'|'tasks'|'estimate'|'schedule'|'report'|'messages'>('info')
-
-  // auth
-  const [authChecked, setAuthChecked] = useState(false)
-  const [authed, setAuthed]           = useState(false)
-  const [nameInput, setNameInput]     = useState('')
-  const [authAttempts, setAuthAttempts] = useState(0)
-  const [authError, setAuthError]     = useState('')
-
-  // messages
-  const [messages, setMessages]     = useState<PortalMessage[]>([])
-  const [msgInput, setMsgInput]     = useState('')
-  const [msgSending, setMsgSending] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  // task status
-  const [statusSaving, setStatusSaving] = useState<string|null>(null)
-
-  // date edits (project info tab)
-  const [dateEdits, setDateEdits]   = useState<Record<string,{sub_start_date:string;sub_end_date:string;sub_notes:string}>>({})
-  const [dateSaving, setDateSaving] = useState<string|null>(null)
-  const [dateSaved, setDateSaved]   = useState<string|null>(null)
-
-  // file upload per task
-  const [uploads, setUploads]       = useState<Record<string,{file:File|null;notes:string;uploading:boolean;done:boolean}>>({})
-
-  // estimate
-  const [estimates, setEstimates]     = useState<Estimate[]>([])
-  const [estSaving, setEstSaving]     = useState(false)
-  const [estSaved, setEstSaved]       = useState(false)
-
-  // schedule (per task)
-  const [schedules, setSchedules]     = useState<Record<string, Schedule>>({})
-  const [schSaving, setSchSaving]     = useState<string|null>(null)
-  const [schSaved, setSchSaved]       = useState<string|null>(null)
-
-  // report
-  const [report, setReport]           = useState<ReportForm>({ type: '', task_id: '', description: '', urgency: 'normal' })
-  const [repSending, setRepSending]   = useState(false)
-  const [repSent, setRepSent]         = useState(false)
-
-  // korvia chat per task
-  const [korviaChats, setKorviaChats] = useState<Record<string,{message:string;sending:boolean;reply:string|null}>>({})
-  const [korviaOpen, setKorviaOpen]   = useState<string|null>(null)
-
-
-  // ── data fetch ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetch(`/api/portal/${projectId}/${subId}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) { setError(d.error); return }
-        setData(d)
-        setMessages(d.messages ?? [])
-        // init schedules from task data
-        const sch: Record<string,Schedule> = {}
-        for (const t of d.tasks ?? []) {
-          sch[t.id] = {
-            sub_arrival_time:  t.sub_arrival_time  ?? '',
-            sub_work_days:     t.sub_work_days ? t.sub_work_days.split(',') : [],
-            sub_schedule_notes: t.sub_schedule_notes ?? '',
-          }
-        }
-        setSchedules(sch)
-      })
-      .catch(() => setError('Could not load project'))
-      .finally(() => setLoading(false))
-  }, [projectId, subId])
-
-  // load existing estimates after auth
-  useEffect(() => {
-    if (!authed || !data) return
-    fetch(`/api/portal/${projectId}/${subId}/estimate`)
-      .then(r => r.json())
-      .then(d => {
-        if (!d.estimates?.length) {
-          // seed empty forms: one project-level + one per task
-          const initial: Estimate[] = [{ type: 'project', amount: '', notes: '' }]
-          for (const t of data.tasks ?? []) {
-            initial.push({ type: 'task', task_id: t.id, amount: '', notes: '' })
-          }
-          setEstimates(initial)
-        } else {
-          setEstimates(d.estimates.map((e: any) => ({
-            ...e, amount: e.amount ? String(e.amount) : '',
-          })))
-        }
-      })
-      .catch(() => {})
-  }, [authed, data])
-
-  useEffect(() => {
-    try {
-      if (sessionStorage.getItem(`portal_auth_${subId}`) === '1') setAuthed(true)
-    } catch {}
-    setAuthChecked(true)
-  }, [subId])
-
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
-
-
-  // ── auth ────────────────────────────────────────────────────────────────
-  function handleAuth() {
-    if (!data || authAttempts >= 3) return
-    const entered = nameInput.trim().toLowerCase()
-    const sub = data.sub
-    const normName    = (sub.name    ?? '').trim().toLowerCase()
-    const normCompany = (sub.company ?? '').trim().toLowerCase()
-    const matchName    = normName.includes(entered) || entered.includes(normName.split(' ')[0])
-    const matchCompany = normCompany.includes(entered) || entered.includes(normCompany.split(' ')[0])
-    const cleanPhone   = (sub.phone ?? '').replace(/\D/g, '')
-    const cleanEntered = nameInput.trim().replace(/\D/g, '')
-    const matchPhone   = cleanEntered.length >= 4 && cleanPhone.endsWith(cleanEntered)
-    if (entered.length >= 2 && (matchName || matchCompany || matchPhone)) {
-      try { sessionStorage.setItem(`portal_auth_${subId}`, '1') } catch {}
-      setAuthed(true)
-    } else {
-      const next = authAttempts + 1
-      setAuthAttempts(next)
-      if (next >= 3) setAuthError('Access locked. Contact your builder for a new link.')
-      else setAuthError(`Incorrect. ${3 - next} attempt(s) remaining.`)
-      setNameInput('')
-    }
-  }
-
-  // ── messages ────────────────────────────────────────────────────────────
-  async function sendMessage() {
-    if (!msgInput.trim() || msgSending) return
-    setMsgSending(true)
-    const content = msgInput.trim()
-    setMsgInput('')
-    try {
-      const res = await fetch(`/api/portal/${projectId}/${subId}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send_message', content }),
-      })
-      const json = await res.json()
-      if (json.ok) {
-        if (json.message)     setMessages(m => [...m, json.message])
-        if (json.korviaReply) setMessages(m => [...m, json.korviaReply])
-      }
-    } catch { setMsgInput(content) }
-    finally  { setMsgSending(false) }
-  }
-
-  // ── task status ─────────────────────────────────────────────────────────
-  async function handleStatusChange(taskId: string, newStatus: string) {
-    setStatusSaving(taskId)
-    try {
-      const isFailInspection = newStatus === 'fail_inspection'
-      const actualStatus = isFailInspection ? 'delayed' : newStatus
-      await fetch(`/api/portal/${projectId}/${subId}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, status: actualStatus, ...(isFailInspection ? { inspection_status: 'failed' } : {}) }),
-      })
-      setData((d: any) => ({ ...d, tasks: d.tasks.map((t: any) =>
-        t.id === taskId ? { ...t, status: actualStatus, ...(isFailInspection ? { inspection_status: 'failed' } : {}) } : t
-      )}))
-    } finally { setStatusSaving(null) }
-  }
-
-
-  // ── estimates ────────────────────────────────────────────────────────────
-  function updateEst(idx: number, field: keyof Estimate, val: string) {
-    setEstimates(prev => prev.map((e, i) => i === idx ? { ...e, [field]: val } : e))
-  }
-  async function saveEstimates() {
-    setEstSaving(true)
-    try {
-      for (const est of estimates) {
-        const amount = parseFloat(est.amount)
-        if (isNaN(amount) || amount <= 0) continue
-        await fetch(`/api/portal/${projectId}/${subId}/estimate`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: est.type, task_id: est.task_id ?? undefined, amount, notes: est.notes }),
-        })
-      }
-      setEstSaved(true); setTimeout(() => setEstSaved(false), 3000)
-    } finally { setEstSaving(false) }
-  }
-
-  // ── schedule ─────────────────────────────────────────────────────────────
-  function toggleDay(taskId: string, day: string) {
-    setSchedules(prev => {
-      const cur = prev[taskId] ?? { sub_arrival_time: '', sub_work_days: [], sub_schedule_notes: '' }
-      const days = cur.sub_work_days.includes(day)
-        ? cur.sub_work_days.filter(d => d !== day)
-        : [...cur.sub_work_days, day]
-      return { ...prev, [taskId]: { ...cur, sub_work_days: days } }
-    })
-  }
-  async function saveSchedule(taskId: string) {
-    const sch = schedules[taskId]; if (!sch) return
-    setSchSaving(taskId)
-    try {
-      await fetch(`/api/portal/${projectId}/${subId}/schedule`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task_id: taskId,
-          sub_arrival_time:   sch.sub_arrival_time || null,
-          sub_work_days:      sch.sub_work_days.join(',') || null,
-          sub_schedule_notes: sch.sub_schedule_notes || null,
-        }),
-      })
-      setData((d: any) => ({ ...d, tasks: d.tasks.map((t: any) => t.id === taskId
-        ? { ...t, sub_arrival_time: sch.sub_arrival_time, sub_work_days: sch.sub_work_days.join(','), sub_schedule_notes: sch.sub_schedule_notes } : t
-      )}))
-      setSchSaved(taskId); setTimeout(() => setSchSaved(null), 2500)
-    } finally { setSchSaving(null) }
-  }
-
-  // ── report ────────────────────────────────────────────────────────────────
-  async function submitReport() {
-    if (!report.type || !report.description.trim()) return
-    setRepSending(true)
-    try {
-      const res = await fetch(`/api/portal/${projectId}/${subId}/report`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...report, task_id: report.task_id || undefined }),
-      })
-      const json = await res.json()
-      if (json.ok) {
-        setRepSent(true)
-        setReport({ type: '', task_id: '', description: '', urgency: 'normal' })
-        setTimeout(() => setRepSent(false), 5000)
-      }
-    } finally { setRepSending(false) }
-  }
-
-  // ── korvia chat ──────────────────────────────────────────────────────────
-  function getChat(taskId: string) { return korviaChats[taskId] ?? { message: '', sending: false, reply: null } }
-  function setChat(taskId: string, u: Partial<{message:string;sending:boolean;reply:string|null}>) {
-    setKorviaChats(s => ({ ...s, [taskId]: { ...getChat(taskId), ...u } }))
-  }
-  async function sendToKorvia(taskId: string) {
-    const chat = getChat(taskId)
-    if (!chat.message.trim() || chat.sending) return
-    setChat(taskId, { sending: true, reply: null })
-    try {
-      const res = await fetch(`/api/portal/${projectId}/${subId}/korvia`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, message: chat.message }),
-      })
-      const json = await res.json()
-      setChat(taskId, { sending: false, reply: json.korviaReply ?? 'Message received.' })
-    } catch { setChat(taskId, { sending: false, reply: 'Could not reach KORVIA. Try again.' }) }
-  }
-
-
-  // ── date save (info tab) ────────────────────────────────────────────────
-  async function handleDateSave(taskId: string) {
-    const task = data?.tasks?.find((t: any) => t.id === taskId)
-    const edit = dateEdits[taskId] ?? {
-      sub_start_date: task?.sub_start_date ?? task?.start_date ?? '',
-      sub_end_date:   task?.sub_end_date   ?? task?.end_date   ?? '',
-      sub_notes: '',
-    }
-    setDateSaving(taskId)
-    try {
-      await fetch(`/api/portal/${projectId}/${subId}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          taskId,
-          sub_start_date: edit.sub_start_date || null,
-          sub_end_date:   edit.sub_end_date   || null,
-        }),
-      })
-      setData((d: any) => ({ ...d, tasks: d.tasks.map((t: any) =>
-        t.id === taskId ? { ...t, sub_start_date: edit.sub_start_date, sub_end_date: edit.sub_end_date } : t
-      )}))
-      setDateSaved(taskId); setTimeout(() => setDateSaved(null), 2500)
-    } finally { setDateSaving(null) }
-  }
-
-  // ── file upload ──────────────────────────────────────────────────────────
-  async function handleUpload(taskId: string) {
-    const up = uploads[taskId]; if (!up?.file) return
-    setUploads(s => ({ ...s, [taskId]: { ...up, uploading: true, done: false } }))
-    try {
-      const fd = new FormData()
-      fd.append('file', up.file)
-      fd.append('taskId', taskId)
-      if (up.notes) fd.append('notes', up.notes)
-      const res = await fetch(`/api/portal/${projectId}/${subId}/upload`, { method: 'POST', body: fd })
-      const json = await res.json()
-      if (json.ok) {
-        setUploads(s => ({ ...s, [taskId]: { file: null, notes: '', uploading: false, done: true } }))
-        setData((d: any) => ({ ...d, files: [...(d.files ?? []), json.file] }))
-        setTimeout(() => setUploads(s => ({ ...s, [taskId]: { ...s[taskId], done: false } })), 3000)
-      } else {
-        setUploads(s => ({ ...s, [taskId]: { ...up, uploading: false } }))
-      }
-    } catch {
-      setUploads(s => ({ ...s, [taskId]: { ...up, uploading: false } }))
-    }
-  }
-
-  // ── loading / error ──────────────────────────────────────────────────────
-  if (loading || !authChecked) return (
+function Spinner() {
+  return (
     <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center gap-4">
       <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-14 w-14 rounded-2xl shadow-xl"/>
       <div className="w-7 h-7 border-2 border-white border-t-transparent rounded-full animate-spin"/>
     </div>
   )
-  if (error) return (
-    <div className="min-h-screen bg-[#F4F6F9] flex flex-col items-center justify-center px-6 text-center gap-4">
-      <div className="text-5xl">🔗</div>
-      <h2 className="font-bold text-[#1A2B4A] text-lg">Access not found</h2>
-      <p className="text-gray-500 text-sm">This portal link may be invalid.<br/>Contact your builder for a new link.</p>
+}
+
+export default function SubPortal() {
+  const params = useParams()
+  const projectId = params.projectId as string
+  const subId     = params.subId     as string
+
+  // ── auth ────────────────────────────────────────────────────────────────
+  const [authStep,  setAuthStep]  = useState<'loading'|'gate'|'ok'|'fail'>('loading')
+  const [authInput, setAuthInput] = useState('')
+
+  // ── data ─────────────────────────────────────────────────────────────────
+  const [project,   setProject]   = useState<any>(null)
+  const [sub,       setSub]       = useState<any>(null)
+  const [tasks,     setTasks]     = useState<any[]>([])
+  const [messages,  setMessages]  = useState<PortalMessage[]>([])
+  const [estimates, setEstimates] = useState<Estimate[]>([])
+  const [taskDates, setTaskDates] = useState<Record<string,{start:string;end:string}>>({})
+
+  // ── ui state ──────────────────────────────────────────────────────────────
+  const [activeTab,    setActiveTab]    = useState('project')
+  const [taskStatus,   setTaskStatus]   = useState<Record<string,string>>({})
+  const [taskFiles,    setTaskFiles]    = useState<Record<string,any[]>>({})
+  const [uploading,    setUploading]    = useState<Record<string,boolean>>({})
+  const [schedule,     setSchedule]     = useState<Schedule>({ sub_arrival_time:'', sub_work_days:[], sub_schedule_notes:'' })
+  const [reportType,   setReportType]   = useState('')
+  const [reportTask,   setReportTask]   = useState('')
+  const [reportUrgency,setReportUrgency]= useState<'low'|'medium'|'high'|'emergency'>('medium')
+  const [reportDesc,   setReportDesc]   = useState('')
+  const [msgInput,     setMsgInput]     = useState('')
+  const [saving,       setSaving]       = useState(false)
+  const [sendingMsg,   setSendingMsg]   = useState(false)
+  const [sendingReport,setSendingReport]= useState(false)
+  const [savedDates,   setSavedDates]   = useState(false)
+  const [korviaTip,    setKorviaTip]    = useState('')
+  const [askKorvia,    setAskKorvia]    = useState<Record<string,{open:boolean;q:string;a:string;loading:boolean}>>({})
+  const [estAmt,       setEstAmt]       = useState('')
+  const [estNotes,     setEstNotes]     = useState('')
+  const [estTaskId,    setEstTaskId]    = useState('')
+  const [estScope,     setEstScope]     = useState<'project'|'task'>('project')
+  const [submittingEst,setSubmittingEst]= useState(false)
+  const msgEndRef = useRef<HTMLDivElement>(null)
+
+  // ── load ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    async function load() {
+      const r = await fetch(`/api/portal/${projectId}/${subId}`)
+      if (!r.ok) { setAuthStep('fail'); return }
+      const d = await r.json()
+      setProject(d.project); setSub(d.sub); setTasks(d.tasks ?? [])
+      setMessages(d.messages ?? []); setEstimates(d.estimates ?? [])
+      if (d.schedule) setSchedule(d.schedule)
+      // init task statuses
+      const st: Record<string,string> = {}
+      const td: Record<string,{start:string;end:string}> = {}
+      const kq: Record<string,{open:boolean;q:string;a:string;loading:boolean}> = {}
+      for (const t of (d.tasks ?? [])) {
+        st[t.id] = t.status ?? 'pending'
+        td[t.id] = { start: t.sub_start_date?.slice(0,10) ?? '', end: t.sub_end_date?.slice(0,10) ?? '' }
+        kq[t.id] = { open:false, q:'', a:'', loading:false }
+      }
+      setTaskStatus(st); setTaskDates(td); setAskKorvia(kq)
+      // load files for each task
+      for (const t of (d.tasks ?? [])) fetchFiles(t.id)
+      setAuthStep('gate')
+    }
+    load()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, subId])
+
+  useEffect(() => { msgEndRef.current?.scrollIntoView({ behavior:'smooth' }) }, [messages])
+
+  async function fetchFiles(taskId: string) {
+    const r = await fetch(`/api/portal/${projectId}/${subId}/files?taskId=${taskId}`)
+    if (!r.ok) return
+    const d = await r.json()
+    setTaskFiles(prev => ({ ...prev, [taskId]: d.files ?? [] }))
+  }
+
+  // ── auth handler ─────────────────────────────────────────────────────────
+  function handleAuth() {
+    if (!sub) return
+    const raw   = authInput.trim().toLowerCase()
+    const phone = (sub.phone ?? '').replace(/\D/g,'')
+    const last4 = phone.slice(-4)
+    const name  = (sub.name  ?? '').toLowerCase().split(' ')[0]
+    const comp  = (sub.company ?? '').toLowerCase().split(' ')[0]
+    if (raw === last4 || raw === name || (comp && raw === comp)) {
+      setAuthStep('ok')
+    } else {
+      setAuthStep('fail')
+    }
+  }
+
+  // ── status update ─────────────────────────────────────────────────────────
+  async function updateStatus(taskId: string, value: string) {
+    setTaskStatus(p => ({ ...p, [taskId]: value }))
+    await fetch(`/api/portal/${projectId}/${subId}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ taskId, status: value })
+    })
+  }
+
+  // ── save dates ────────────────────────────────────────────────────────────
+  async function saveDates() {
+    setSaving(true)
+    for (const [taskId, d] of Object.entries(taskDates)) {
+      await fetch(`/api/portal/${projectId}/${subId}`, {
+        method:'PATCH',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ taskId, sub_start_date: d.start || null, sub_end_date: d.end || null })
+      })
+    }
+    setSaving(false); setSavedDates(true)
+    setTimeout(() => setSavedDates(false), 2500)
+  }
+
+  // ── file upload ───────────────────────────────────────────────────────────
+  async function handleUpload(taskId: string, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return
+    setUploading(p => ({ ...p, [taskId]: true }))
+    const fd = new FormData(); fd.append('file', file); fd.append('taskId', taskId)
+    await fetch(`/api/portal/${projectId}/${subId}/upload`, { method:'POST', body: fd })
+    await fetchFiles(taskId)
+    setUploading(p => ({ ...p, [taskId]: false }))
+    e.target.value = ''
+  }
+
+  // ── schedule save ──────────────────────────────────────────────────────────
+  async function saveSchedule() {
+    setSaving(true)
+    await fetch(`/api/portal/${projectId}/${subId}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ schedule })
+    })
+    setSaving(false)
+  }
+
+  // ── send message ──────────────────────────────────────────────────────────
+  async function sendMessage() {
+    if (!msgInput.trim()) return
+    setSendingMsg(true)
+    const r = await fetch(`/api/portal/${projectId}/${subId}/message`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ content: msgInput.trim() })
+    })
+    if (r.ok) {
+      const d = await r.json()
+      setMessages(p => [...p, d.message, ...(d.korvia ? [d.korvia] : [])])
+      setMsgInput('')
+    }
+    setSendingMsg(false)
+  }
+
+  // ── send report ───────────────────────────────────────────────────────────
+  async function sendReport() {
+    if (!reportType || !reportDesc.trim()) return
+    setSendingReport(true)
+    await fetch(`/api/portal/${projectId}/${subId}/report`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ type: reportType, taskId: reportTask || null, urgency: reportUrgency, description: reportDesc.trim() })
+    })
+    setReportType(''); setReportTask(''); setReportDesc(''); setReportUrgency('medium')
+    setSendingReport(false)
+  }
+
+  // ── ask korvia ────────────────────────────────────────────────────────────
+  async function askKorviaFn(taskId: string) {
+    const q = askKorvia[taskId]?.q; if (!q?.trim()) return
+    setAskKorvia(p => ({ ...p, [taskId]: { ...p[taskId], loading:true } }))
+    const r = await fetch('/api/korvia/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: q, projectId, subId, taskId })
+    })
+    const d = await r.json()
+    setAskKorvia(p => ({ ...p, [taskId]: { ...p[taskId], a: d.reply ?? d.message ?? '', loading:false } }))
+  }
+
+  // ── submit estimate ───────────────────────────────────────────────────────
+  async function submitEstimate() {
+    if (!estAmt) return
+    setSubmittingEst(true)
+    const r = await fetch(`/api/portal/${projectId}/${subId}/estimate`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ type: estScope, task_id: estScope==='task' ? estTaskId : null, amount: estAmt, notes: estNotes })
+    })
+    if (r.ok) {
+      const d = await r.json()
+      setEstimates(p => [...p.filter(e => !(e.type===d.estimate.type && e.task_id===d.estimate.task_id)), d.estimate])
+    }
+    setEstAmt(''); setEstNotes(''); setSubmittingEst(false)
+  }
+
+  // ── early returns ──────────────────────────────────────────────────────────
+  if (authStep === 'loading') return <Spinner/>
+
+  if (authStep === 'gate') return (
+    <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center p-6 gap-6">
+      <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-14 w-14 rounded-2xl shadow-xl"/>
+      <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-xl flex flex-col gap-4">
+        <div>
+          <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Contractor Portal</p>
+          <h1 className="text-xl font-bold text-[#1A2B4A] mt-1">{project?.name ?? 'Project'}</h1>
+        </div>
+        <p className="text-sm text-gray-600">Enter your first name, company name, or last 4 digits of your phone to verify your identity.</p>
+        <input
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A]"
+          placeholder="e.g. John / Acme / 4567"
+          value={authInput}
+          onChange={e => setAuthInput(e.target.value)}
+          onKeyDown={e => e.key==='Enter' && handleAuth()}
+        />
+        <button onClick={handleAuth}
+          className="w-full bg-[#1A2B4A] text-white py-3 rounded-xl font-semibold text-sm active:scale-95 transition">
+          Enter Portal
+        </button>
+      </div>
     </div>
   )
 
-  // ── security gate ────────────────────────────────────────────────────────
-  if (!authed) {
-    const locked = authAttempts >= 3
-    return (
-      <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center px-6">
-        <div className="w-full max-w-[380px]">
-          <div className="flex flex-col items-center gap-3 mb-8">
-            <img src="/brivox-logo-dark.svg" alt="Brivox" className="h-16 w-16 rounded-2xl shadow-2xl"/>
-            <h1 className="text-white text-2xl font-bold">Brivox Portal</h1>
-            {data && <p className="text-white/60 text-sm text-center">{data.project.name}</p>}
+  if (authStep === 'fail') return (
+    <div className="min-h-screen bg-[#1A2B4A] flex flex-col items-center justify-center p-6 gap-4">
+      <div className="text-4xl">🔒</div>
+      <h2 className="text-white text-xl font-bold">Access Denied</h2>
+      <p className="text-blue-200 text-sm text-center">We couldn't verify your identity. Contact your builder for a new portal link.</p>
+    </div>
+  )
+
+  // ── helpers for render ─────────────────────────────────────────────────────
+  const projEst  = estimates.find(e => e.type === 'project')
+  const taskEsts = estimates.filter(e => e.type === 'task')
+  const totalEst = estimates.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+
+  // ── RENDER ─────────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto">
+
+      {/* ── HEADER ── */}
+      <div className="bg-[#1A2B4A] pt-10 pb-4 px-5">
+        <div className="flex items-center gap-3 mb-3">
+          <img src="/brivox-logo-dark.svg" alt="" className="h-9 w-9 rounded-xl"/>
+          <div>
+            <p className="text-blue-300 text-xs uppercase tracking-wider">Contractor Portal</p>
+            <h1 className="text-white text-lg font-bold leading-tight">{project?.name}</h1>
           </div>
-          <div className="bg-white/10 backdrop-blur rounded-3xl p-6">
-            <div className="flex items-center gap-3 mb-5">
-              <span className="text-2xl">{locked ? '🔒' : '🔐'}</span>
-              <div>
-                <p className="text-white font-bold text-sm">Verify your identity</p>
-                <p className="text-white/50 text-xs">Enter your name or company to continue</p>
-              </div>
-            </div>
-            {!locked ? (
-              <>
-                <input type="text" placeholder="Your name, company, or last 4 of phone"
-                  value={nameInput} autoFocus
-                  onChange={e => { setNameInput(e.target.value); setAuthError('') }}
-                  onKeyDown={e => e.key === 'Enter' && handleAuth()}
-                  className="w-full bg-white/20 text-white placeholder-white/40 border border-white/20 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-white/60 mb-3"/>
-                {authError && <p className="text-red-300 text-xs mb-3 text-center">{authError}</p>}
-                <button onClick={handleAuth} disabled={!nameInput.trim()}
-                  className="w-full py-3.5 rounded-2xl bg-[#2E7CF6] text-white font-bold text-sm disabled:opacity-50 transition active:scale-[0.98]">
-                  Access my portal →
-                </button>
-              </>
-            ) : (
-              <p className="text-red-300 text-sm text-center py-2 font-semibold">{authError}</p>
-            )}
-          </div>
-          <p className="text-white/30 text-xs text-center mt-6">Powered by Brivox · Construction Management</p>
+        </div>
+        {project?.address && (
+          <p className="text-blue-200 text-xs mb-3">📍 {project.address}</p>
+        )}
+        {/* sub chips */}
+        <div className="flex flex-wrap gap-2">
+          <span className="bg-white/10 text-white text-xs px-3 py-1 rounded-full">{sub?.name}</span>
+          {sub?.trade && <span className="bg-blue-500/30 text-blue-100 text-xs px-3 py-1 rounded-full">{sub.trade}</span>}
+          {sub?.company && <span className="bg-white/10 text-white text-xs px-3 py-1 rounded-full">{sub.company}</span>}
         </div>
       </div>
-    )
-  }
 
-
-  // ── main portal ───────────────────────────────────────────────────────────
-  const { project, sub, tasks, files } = data
-  const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(project.address)}`
-  const completedCount = tasks.filter((t: any) => t.status === 'completed').length
-
-  const TABS = [
-    { key: 'info',     label: 'Project',  icon: '🏗️' },
-    { key: 'tasks',    label: 'Tasks',    icon: '📋' },
-    { key: 'estimate', label: 'Estimate', icon: '💰' },
-    { key: 'schedule', label: 'Schedule', icon: '🗓️' },
-    { key: 'report',   label: 'Report',   icon: '⚠️' },
-    { key: 'messages', label: 'Messages', icon: '💬' },
-  ]
-
-  return (
-    <div className="min-h-screen bg-[#F4F6F9] max-w-[480px] mx-auto pb-12">
-
-      {/* ── Disclaimer banner ─────────────────────────────────────────────── */}
-      <div className="bg-amber-500 px-4 py-2.5 flex items-start gap-2">
-        <span className="text-white text-sm mt-0.5">📋</span>
-        <p className="text-white text-xs leading-relaxed font-medium">
-          All estimates submitted here are preliminary and subject to modification,
-          provided the builder approves and the subcontractor agrees in writing before final payment.
+      {/* ── DISCLAIMER ── */}
+      <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex gap-2 items-start">
+        <span className="text-amber-500 text-sm mt-0.5 shrink-0">⚠️</span>
+        <p className="text-amber-700 text-xs leading-relaxed">
+          This portal is for communication only. All work must be verified on-site. Dates and tasks are subject to change by the builder.
         </p>
       </div>
 
-      {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="bg-[#1A2B4A] px-5 pt-8 pb-5">
-        <div className="flex items-center gap-2 mb-3">
-          <img src="/brivox-logo-dark.svg" alt="" className="h-6 w-6 rounded-lg"/>
-          <span className="text-white/50 text-xs font-medium">Brivox — Sub Portal</span>
-        </div>
-        <h1 className="text-white text-xl font-bold leading-tight">{project.name}</h1>
-        <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
-          className="text-white/50 text-xs flex items-center gap-1 mt-1 underline underline-offset-2">
-          <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          {project.address}
-        </a>
-        <div className="mt-3 flex gap-2 flex-wrap">
-          <div className="inline-flex items-center gap-1.5 bg-white/10 rounded-full px-3 py-1">
-            <span className="text-white text-xs font-medium">{sub.company}</span>
-            {sub.trade && <span className="text-white/50 text-xs">· {sub.trade}</span>}
-          </div>
-          <div className="inline-flex items-center gap-1.5 bg-white/10 rounded-full px-3 py-1">
-            <span className="text-white text-xs">{completedCount}/{tasks.length} tasks done</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Tabs (scrollable) ─────────────────────────────────────────────── */}
-      <div className="flex bg-white border-b border-gray-100 sticky top-0 z-10 overflow-x-auto">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key as any)}
-            className={`flex-shrink-0 px-3 py-2.5 text-xs font-semibold flex flex-col items-center gap-0.5 border-b-2 transition ${
-              tab === t.key ? 'border-[#2E7CF6] text-[#2E7CF6]' : 'border-transparent text-gray-400'
+      {/* ── TABS ── */}
+      <div className="bg-white border-b border-gray-100 flex overflow-x-auto no-scrollbar sticky top-0 z-10">
+        {[
+          { id:'project',  label:'Project' },
+          { id:'tasks',    label:'Tasks'   },
+          { id:'estimate', label:'Estimate'},
+          { id:'schedule', label:'Schedule'},
+          { id:'report',   label:'Report'  },
+          { id:'messages', label:'Messages'},
+        ].map(t => (
+          <button key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`shrink-0 px-4 py-3 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+              activeTab===t.id ? 'border-[#1A2B4A] text-[#1A2B4A]' : 'border-transparent text-gray-400'
             }`}>
-            <span>{t.icon}</span><span className="whitespace-nowrap">{t.label}</span>
+            {t.label}
           </button>
         ))}
       </div>
 
+      {/* ── TAB CONTENT ── */}
+      <div className="flex-1 pb-8">
 
-      {/* ══ PROJECT TAB ════════════════════════════════════════════════════ */}
-      {tab === 'info' && (
-        <div className="px-4 py-4 flex flex-col gap-4">
-          <div className="bg-white rounded-2xl shadow-sm p-4">
-            <p className="text-xs font-semibold text-gray-500 mb-3">PROJECT DETAILS</p>
-            <div className="flex flex-col gap-2.5 text-sm">
-              <Row label="Project"  value={project.name}/>
-              <Row label="Status"   value={project.status?.replace('_',' ') ?? 'Active'}/>
-              <Row label="Start"    value={project.start_date ? format(parseISO(project.start_date), 'MMM d, yyyy') : undefined}/>
-              <Row label="Est. End" value={project.estimated_end_date ? format(parseISO(project.estimated_end_date), 'MMM d, yyyy') : undefined}/>
+        {/* ════════════ PROJECT TAB ════════════ */}
+        {activeTab === 'project' && (
+          <div className="flex flex-col gap-4 p-4">
+
+            {/* Project Details */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-3">
+              <h2 className="text-sm font-bold text-[#1A2B4A] uppercase tracking-wide">Project Details</h2>
+              <Row label="Project" value={project?.name}/>
+              <Row label="Address" value={project?.address}/>
+              <Row label="Builder" value={project?.builder_name ?? project?.owner_name}/>
+              <Row label="Status"  value={project?.status}/>
+              {project?.budget && <Row label="Budget" value={fmtMoney(project.budget) ?? undefined}/>}
             </div>
-          </div>
-          <div className="bg-white rounded-2xl shadow-sm p-4">
-            <p className="text-xs font-semibold text-gray-500 mb-3">YOUR REGISTRATION</p>
-            <div className="flex flex-col gap-2.5 text-sm">
-              <Row label="Company" value={sub.company}/>
-              <Row label="Contact" value={sub.name}/>
-              <Row label="Trade"   value={sub.trade}/>
-              {sub.phone && <Row label="Phone" value={sub.phone}/>}
+
+            {/* ── YOUR TASK DATES (always visible) ── */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+              <h2 className="text-sm font-bold text-[#1A2B4A] uppercase tracking-wide mb-3">📅 Your Task Dates</h2>
+              {tasks.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-3xl mb-2">📋</p>
+                  <p className="text-gray-500 text-sm">No tasks assigned to you yet.</p>
+                  <p className="text-gray-400 text-xs mt-1">Your builder will add tasks and you can set your start/end dates here.</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {tasks.map(t => {
+                    const sd = daysLabel(taskDates[t.id]?.start)
+                    const ed = daysLabel(taskDates[t.id]?.end)
+                    return (
+                      <div key={t.id} className="border border-gray-100 rounded-xl p-3 flex flex-col gap-2">
+                        <p className="text-[#1A2B4A] font-semibold text-sm">{t.name}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-400 block mb-1">Start Date</label>
+                            <input type="date" value={taskDates[t.id]?.start ?? ''}
+                              onChange={e => setTaskDates(p => ({ ...p, [t.id]: { ...p[t.id], start: e.target.value } }))}
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#1A2B4A]"/>
+                            {sd && <p className={`text-xs mt-1 ${sd.cls}`}>{sd.text}</p>}
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-400 block mb-1">End Date</label>
+                            <input type="date" value={taskDates[t.id]?.end ?? ''}
+                              onChange={e => setTaskDates(p => ({ ...p, [t.id]: { ...p[t.id], end: e.target.value } }))}
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#1A2B4A]"/>
+                            {ed && <p className={`text-xs mt-1 ${ed.cls}`}>{ed.text}</p>}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <button onClick={saveDates} disabled={saving}
+                    className="w-full bg-[#1A2B4A] text-white py-3 rounded-xl text-sm font-semibold active:scale-95 transition disabled:opacity-50">
+                    {saving ? 'Saving…' : savedDates ? '✅ Dates Saved!' : '💾 Save Dates'}
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
-          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex gap-3">
-            <span className="text-2xl">🤖</span>
-            <div>
-              <p className="text-xs font-bold text-blue-700 mb-1">KORVIA is on your team</p>
-              <p className="text-xs text-blue-600 leading-relaxed">
-                Submit your <strong>Estimate</strong> and <strong>Schedule</strong> using the tabs above.
-                Use <strong>Report</strong> to flag any issues — KORVIA will notify your builder instantly.
-                Use <strong>Messages</strong> for quick questions.
-              </p>
+
+            {/* Your Registration */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-3">
+              <h2 className="text-sm font-bold text-[#1A2B4A] uppercase tracking-wide">Your Registration</h2>
+              <Row label="Name"    value={sub?.name}/>
+              <Row label="Company" value={sub?.company}/>
+              <Row label="Trade"   value={sub?.trade}/>
+              <Row label="Phone"   value={sub?.phone}/>
+              <Row label="Email"   value={sub?.email}/>
             </div>
-          </div>
-          {/* Per-task date editing */}
-          {tasks.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-              <div className="px-4 pt-4 pb-2.5 border-b border-gray-50">
-                <p className="text-xs font-semibold text-gray-500">📅 YOUR TASK DATES</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Update your start/end — KORVIA will notify your builder and any overlapping subs automatically.
+
+            {/* KORVIA Banner */}
+            <div className="bg-[#1A2B4A] rounded-2xl p-4 flex gap-3 items-start">
+              <span className="text-2xl">🤖</span>
+              <div>
+                <p className="text-white font-bold text-sm">KORVIA is on this project</p>
+                <p className="text-blue-200 text-xs mt-1 leading-relaxed">
+                  KORVIA monitors your tasks, responds to your messages and reports, and alerts the builder when something needs attention. Use the Messages tab to talk to KORVIA directly.
                 </p>
               </div>
-              {tasks.map((task: any) => {
-                const edit = dateEdits[task.id] ?? {
-                  sub_start_date: task.sub_start_date ?? task.start_date ?? '',
-                  sub_end_date:   task.sub_end_date   ?? task.end_date   ?? '',
-                  sub_notes: '',
-                }
-                const isSaving = dateSaving === task.id
-                const isSaved  = dateSaved  === task.id
-                return (
-                  <div key={task.id} className="px-4 py-3 border-b border-gray-50 last:border-0">
-                    <p className="text-xs font-bold text-[#1A2B4A] mb-2.5">{task.name}</p>
-                    <div className="grid grid-cols-2 gap-2 mb-2.5">
-                      <div>
-                        <p className="text-xs text-gray-400 mb-1">Start date</p>
-                        <input type="date"
-                          value={edit.sub_start_date}
-                          onChange={e => setDateEdits(s => ({ ...s, [task.id]: { ...edit, sub_start_date: e.target.value } }))}
-                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs text-[#1A2B4A] focus:outline-none focus:border-blue-400"/>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400 mb-1">End date</p>
-                        <input type="date"
-                          value={edit.sub_end_date}
-                          onChange={e => setDateEdits(s => ({ ...s, [task.id]: { ...edit, sub_end_date: e.target.value } }))}
-                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs text-[#1A2B4A] focus:outline-none focus:border-blue-400"/>
-                      </div>
-                    </div>
-                    <button onClick={() => handleDateSave(task.id)} disabled={isSaving}
-                      className={`w-full py-2 rounded-xl text-xs font-bold transition ${
-                        isSaved ? 'bg-green-500 text-white' : 'bg-[#2E7CF6] text-white active:scale-[0.97]'
-                      } disabled:opacity-60`}>
-                      {isSaving ? 'Saving…' : isSaved ? '✅ Saved! KORVIA notified' : '📅 Save Dates'}
-                    </button>
-                  </div>
-                )
-              })}
             </div>
-          )}
 
-          <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
-            className="w-full py-3.5 rounded-2xl bg-[#1A2B4A] text-white font-bold text-sm flex items-center justify-center gap-2">
-            <svg width="16" height="16" fill="none" stroke="white" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            Open in Google Maps
-          </a>
-        </div>
-      )}
-
-
-      {/* ══ TASKS TAB ══════════════════════════════════════════════════════ */}
-      {tab === 'tasks' && (
-        <div className="px-4 py-4 flex flex-col gap-4">
-          <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 flex gap-2.5 items-start">
-            <span className="text-lg mt-0.5">🤖</span>
-            <p className="text-xs text-amber-700 leading-relaxed">
-              Update your task status here. For anything complex, tap <strong>Ask KORVIA</strong> — she&apos;ll notify your builder automatically.
-            </p>
+            {/* Maps */}
+            {project?.address && (
+              <a href={`https://maps.apple.com/?q=${encodeURIComponent(project.address)}`} target="_blank" rel="noreferrer"
+                className="flex items-center justify-center gap-2 bg-white border border-gray-200 rounded-2xl py-3 text-sm font-semibold text-[#1A2B4A] shadow-sm">
+                🗺️ Open in Maps
+              </a>
+            )}
           </div>
-          {tasks.length === 0
-            ? <div className="text-center py-8 text-gray-400 text-sm">No tasks assigned yet</div>
-            : tasks.map((task: any) => {
-              const dl = daysLabel(task.start_date)
-              const chat = getChat(task.id)
-              const isOpen = korviaOpen === task.id
-              return (
-                <div key={task.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                  <div className="px-4 pt-4 pb-3 border-b border-gray-50">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="text-sm font-bold text-[#1A2B4A]">{task.name}</p>
-                      {dl && <span className={`text-xs font-semibold shrink-0 ${dl.cls}`}>{dl.text}</span>}
-                    </div>
-                    {task.notes && <p className="text-xs text-gray-400 mb-2">{task.notes}</p>}
-                    <div className="flex gap-2 text-xs text-gray-400">
-                      <span>📅 {task.start_date ? format(parseISO(task.start_date), 'MMM d') : '—'} → {task.end_date ? format(parseISO(task.end_date), 'MMM d') : '—'}</span>
-                      {task.sub_quoted_cost && <span>💰 {fmtMoney(task.sub_quoted_cost)}</span>}
-                    </div>
-                  </div>
-                  <div className="px-4 py-3">
-                    <p className="text-xs text-gray-500 mb-2 font-semibold">MY STATUS</p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {SUB_STATUS_OPTIONS.map(opt => (
-                        <button key={opt.value} disabled={statusSaving === task.id}
-                          onClick={() => handleStatusChange(task.id, opt.value)}
-                          className={`py-2 px-2 rounded-xl border text-xs font-semibold transition ${
-                            (task.status === opt.value || (opt.value === 'fail_inspection' && task.inspection_status === 'failed'))
-                              ? opt.color + ' ring-1 ring-offset-1 ring-current'
-                              : 'border-gray-200 bg-gray-50 text-gray-500 active:scale-[0.97]'
-                          }`}>
-                          {statusSaving === task.id ? '…' : opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="px-4 pb-3">
-                    <button onClick={() => setKorviaOpen(isOpen ? null : task.id)}
-                      className="w-full py-2 rounded-xl bg-blue-50 text-blue-600 text-xs font-bold border border-blue-100 flex items-center justify-center gap-1.5">
-                      🤖 {isOpen ? 'Close KORVIA' : 'Ask KORVIA'}
-                    </button>
-                    {isOpen && (
-                      <div className="mt-2 flex flex-col gap-2">
-                        {chat.reply && (
-                          <div className="bg-blue-50 rounded-xl p-3 text-xs text-blue-700 leading-relaxed">
-                            <strong>KORVIA:</strong> {chat.reply}
-                          </div>
-                        )}
-                        <div className="flex gap-2">
-                          <input value={chat.message} placeholder="Message KORVIA…"
-                            onChange={e => setChat(task.id, { message: e.target.value })}
-                            onKeyDown={e => e.key === 'Enter' && sendToKorvia(task.id)}
-                            className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-400"/>
-                          <button onClick={() => sendToKorvia(task.id)} disabled={chat.sending || !chat.message.trim()}
-                            className="px-3 py-2 rounded-xl bg-[#2E7CF6] text-white text-xs font-bold disabled:opacity-50">
-                            {chat.sending ? '…' : '→'}
-                          </button>
+        )}
+
+        {/* ════════════ TASKS TAB ════════════ */}
+        {activeTab === 'tasks' && (
+          <div className="flex flex-col gap-4 p-4">
+
+            {/* KORVIA Tip */}
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex gap-2 items-start">
+              <span className="text-lg shrink-0">🤖</span>
+              <p className="text-blue-700 text-xs leading-relaxed">
+                Update your task status so KORVIA can notify the builder in real time. Use "❌ Fail Inspection" if work didn't pass — KORVIA will alert the builder immediately.
+              </p>
+            </div>
+
+            {/* Task cards OR empty state */}
+            {tasks.length === 0 ? (
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
+                <p className="text-4xl mb-2">📋</p>
+                <p className="text-gray-600 font-semibold text-sm">No tasks yet</p>
+                <p className="text-gray-400 text-xs mt-1">Your builder hasn't assigned tasks to you yet. Check back soon.</p>
+              </div>
+            ) : (
+              tasks.map(task => {
+                const cur  = taskStatus[task.id] ?? task.status ?? 'pending'
+                const opt  = STATUS_OPTIONS.find(o => o.value === cur)
+                const files= taskFiles[task.id] ?? []
+                const kv   = askKorvia[task.id] ?? { open:false, q:'', a:'', loading:false }
+                return (
+                  <div key={task.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    {/* task header */}
+                    <div className="p-4 border-b border-gray-50">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-[#1A2B4A] text-sm">{task.name}</p>
+                          {task.description && <p className="text-gray-500 text-xs mt-0.5 leading-relaxed">{task.description}</p>}
                         </div>
+                        <span className={`shrink-0 text-xs px-2 py-1 rounded-full border font-medium ${opt?.cls ?? 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+                          {opt?.label ?? cur}
+                        </span>
                       </div>
-                    )}
-                  </div>
+                      {task.due_date && (
+                        <p className="text-xs text-gray-400 mt-2">
+                          Due: {format(parseISO(task.due_date),'MMM d, yyyy')}
+                          {(() => { const dl=daysLabel(task.due_date); return dl ? <span className={`ml-2 font-medium ${dl.cls}`}>{dl.text}</span> : null })()}
+                        </p>
+                      )}
+                    </div>
 
-                  {/* ── File upload ── */}
-                  <div className="px-4 pb-4 pt-1 border-t border-gray-50">
-                    <p className="text-xs font-semibold text-gray-500 mb-2 mt-2">📎 FILES &amp; PHOTOS</p>
-
-                    {/* Existing uploaded files for this task */}
-                    {(files ?? []).filter((f: any) => f.task_id === task.id).length > 0 && (
-                      <div className="flex flex-col gap-1.5 mb-3">
-                        {(files ?? []).filter((f: any) => f.task_id === task.id).map((f: any) => (
-                          <a key={f.id} href={f.file_url} target="_blank" rel="noopener noreferrer"
-                            className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 text-xs text-blue-600 hover:bg-blue-50 transition">
-                            <span>{f.file_type?.startsWith('image') ? '🖼️' : '📄'}</span>
-                            <span className="flex-1 truncate">{f.file_name}</span>
-                            {f.notes && <span className="text-gray-400 truncate max-w-[80px]">{f.notes}</span>}
-                            <span className="text-gray-400 shrink-0">↗</span>
-                          </a>
+                    {/* status buttons */}
+                    <div className="p-3 flex flex-col gap-2">
+                      <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Update Status</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {STATUS_OPTIONS.map(o => (
+                          <button key={o.value}
+                            onClick={() => updateStatus(task.id, o.value)}
+                            className={`text-xs py-2 px-3 rounded-lg border font-medium transition active:scale-95 ${
+                              cur===o.value ? o.cls : 'border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100'
+                            }`}>
+                            {o.label}
+                          </button>
                         ))}
                       </div>
-                    )}
+                    </div>
 
-                    {/* Upload control */}
-                    {(() => {
-                      const up = uploads[task.id] ?? { file: null, notes: '', uploading: false, done: false }
-                      return (
-                        <div className="flex flex-col gap-2">
-                          <label className={`flex items-center gap-2 border border-dashed rounded-xl px-3 py-2.5 cursor-pointer transition ${
-                            up.file ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-blue-300'
-                          }`}>
-                            <span className="text-base">{up.file ? '📁' : '📸'}</span>
-                            <span className="text-xs text-gray-500 flex-1 truncate">
-                              {up.file ? up.file.name : 'Choose photo or PDF…'}
-                            </span>
-                            <input type="file" accept="image/*,application/pdf" className="sr-only"
-                              onChange={e => {
-                                const f = e.target.files?.[0] ?? null
-                                setUploads(s => ({ ...s, [task.id]: { ...(s[task.id] ?? { notes: '', uploading: false, done: false }), file: f, done: false } }))
-                              }}/>
-                          </label>
-                          {up.file && (
-                            <>
-                              <input placeholder="Notes about this file (optional)…"
-                                value={up.notes}
-                                onChange={e => setUploads(s => ({ ...s, [task.id]: { ...up, notes: e.target.value } }))}
-                                className="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 focus:outline-none focus:border-blue-400"/>
-                              <button onClick={() => handleUpload(task.id)} disabled={up.uploading}
-                                className={`w-full py-2.5 rounded-xl text-xs font-bold transition ${
-                                  up.done ? 'bg-green-500 text-white' : 'bg-[#1A2B4A] text-white active:scale-[0.97]'
-                                } disabled:opacity-60`}>
-                                {up.uploading ? 'Uploading…' : up.done ? '✅ Uploaded!' : '⬆️ Upload File'}
-                              </button>
-                            </>
+                    {/* Ask KORVIA */}
+                    <div className="px-3 pb-3">
+                      <button
+                        onClick={() => setAskKorvia(p => ({ ...p, [task.id]: { ...p[task.id], open: !kv.open } }))}
+                        className="w-full text-xs text-[#1A2B4A] border border-[#1A2B4A] rounded-lg py-2 font-semibold flex items-center justify-center gap-2 active:scale-95">
+                        🤖 Ask KORVIA about this task
+                      </button>
+                      {kv.open && (
+                        <div className="mt-2 flex flex-col gap-2">
+                          <input value={kv.q}
+                            onChange={e => setAskKorvia(p => ({ ...p, [task.id]: { ...p[task.id], q: e.target.value } }))}
+                            placeholder="Ask anything about this task…"
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-[#1A2B4A]"/>
+                          <button onClick={() => askKorviaFn(task.id)} disabled={kv.loading}
+                            className="bg-[#1A2B4A] text-white text-xs py-2 rounded-lg font-semibold disabled:opacity-50 active:scale-95">
+                            {kv.loading ? 'Asking…' : 'Send →'}
+                          </button>
+                          {kv.a && (
+                            <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-800 leading-relaxed">
+                              🤖 {kv.a}
+                            </div>
                           )}
                         </div>
-                      )
-                    })()}
-                  </div>
-                </div>
-              )
-            })
-          }
-        </div>
-      )}
-
-
-      {/* ══ ESTIMATE TAB ═══════════════════════════════════════════════════ */}
-      {tab === 'estimate' && (
-        <div className="px-4 py-4 flex flex-col gap-4">
-          {/* Legal disclaimer */}
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-            <p className="text-xs font-bold text-amber-800 mb-1">📋 About your estimate</p>
-            <p className="text-xs text-amber-700 leading-relaxed">
-              This estimate is preliminary and may be adjusted at any time, provided both the <strong>builder approves</strong> and <strong>you agree</strong> before any changes are made. Final payment will be based on the approved and mutually agreed amount.
-            </p>
-          </div>
-
-          {/* Project-level estimate */}
-          {estimates.filter(e => e.type === 'project').map((est, idx) => (
-            <div key={`proj-${idx}`} className="bg-white rounded-2xl shadow-sm p-4">
-              <p className="text-xs font-semibold text-gray-500 mb-3">💼 PROJECT ESTIMATE (TOTAL)</p>
-              <p className="text-xs text-gray-400 mb-3">Your total bid for all your work on this project</p>
-              <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden mb-3">
-                <span className="px-3 text-gray-400 font-bold text-sm bg-gray-50 py-3 border-r border-gray-200">$</span>
-                <input type="number" placeholder="0.00" step="0.01" min="0"
-                  value={est.amount}
-                  onChange={e => updateEst(estimates.indexOf(est), 'amount', e.target.value)}
-                  className="flex-1 px-3 py-3 text-sm text-[#1A2B4A] font-bold focus:outline-none"/>
-              </div>
-              <textarea placeholder="Scope of work, materials included, exclusions…" rows={3}
-                value={est.notes}
-                onChange={e => updateEst(estimates.indexOf(est), 'notes', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-xs text-gray-700 focus:outline-none focus:border-blue-400 resize-none"/>
-            </div>
-          ))}
-
-          {/* Per-task estimates */}
-          {tasks.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-              <div className="px-4 pt-4 pb-2 border-b border-gray-50">
-                <p className="text-xs font-semibold text-gray-500">🔧 PER-TASK ESTIMATES</p>
-                <p className="text-xs text-gray-400 mt-0.5">Breakdown by task (optional but helpful)</p>
-              </div>
-              {tasks.map((task: any) => {
-                const taskEst = estimates.find(e => e.type === 'task' && e.task_id === task.id)
-                  ?? { type: 'task' as const, task_id: task.id, amount: '', notes: '' }
-                const taskEstIdx = estimates.findIndex(e => e.type === 'task' && e.task_id === task.id)
-                return (
-                  <div key={task.id} className="px-4 py-3 border-b border-gray-50 last:border-0">
-                    <p className="text-xs font-bold text-[#1A2B4A] mb-2">{task.name}</p>
-                    <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden mb-2">
-                      <span className="px-3 text-gray-400 font-bold text-sm bg-gray-50 py-2.5 border-r border-gray-200">$</span>
-                      <input type="number" placeholder="0.00" step="0.01" min="0"
-                        value={taskEst.amount}
-                        onChange={e => taskEstIdx >= 0
-                          ? updateEst(taskEstIdx, 'amount', e.target.value)
-                          : setEstimates(prev => [...prev, { ...taskEst, amount: e.target.value }])}
-                        className="flex-1 px-3 py-2.5 text-sm text-[#1A2B4A] font-semibold focus:outline-none"/>
+                      )}
                     </div>
-                    <input placeholder="Notes (optional)…"
-                      value={taskEst.notes}
-                      onChange={e => taskEstIdx >= 0
-                        ? updateEst(taskEstIdx, 'notes', e.target.value)
-                        : setEstimates(prev => [...prev, { ...taskEst, notes: e.target.value }])}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 focus:outline-none focus:border-blue-400"/>
+
+                    {/* ── FILES & PHOTOS (per task) ── */}
+                    <div className="border-t border-gray-100 p-3 flex flex-col gap-2">
+                      <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">📎 Files &amp; Photos</p>
+                      {files.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic">No files uploaded yet for this task.</p>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          {files.map((f, i) => (
+                            <a key={i} href={f.url} target="_blank" rel="noreferrer"
+                              className="aspect-square rounded-lg overflow-hidden border border-gray-200 flex items-center justify-center bg-gray-50">
+                              {f.url?.match(/\.(jpg|jpeg|png|gif|webp)$/i)
+                                ? <img src={f.url} alt="" className="w-full h-full object-cover"/>
+                                : <span className="text-2xl">📄</span>
+                              }
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      <label className={`flex items-center justify-center gap-2 w-full border-2 border-dashed border-gray-200 rounded-lg py-2.5 text-xs text-gray-500 cursor-pointer hover:border-[#1A2B4A] hover:text-[#1A2B4A] transition ${uploading[task.id] ? 'opacity-50 cursor-default' : ''}`}>
+                        {uploading[task.id] ? '⏳ Uploading…' : '+ Add Photo / PDF'}
+                        <input type="file" className="hidden" accept="image/*,application/pdf"
+                          disabled={uploading[task.id]}
+                          onChange={e => handleUpload(task.id, e)}/>
+                      </label>
+                    </div>
                   </div>
                 )
-              })}
-            </div>
-          )}
+              })
+            )}
 
-          <button onClick={saveEstimates} disabled={estSaving}
-            className={`w-full py-3.5 rounded-2xl font-bold text-sm transition ${
-              estSaved ? 'bg-green-500 text-white' : 'bg-[#2E7CF6] text-white active:scale-[0.98]'
-            } disabled:opacity-60`}>
-            {estSaving ? 'Saving…' : estSaved ? '✅ Estimate Submitted!' : '💾 Submit Estimate'}
-          </button>
-        </div>
-      )}
-
-
-      {/* ══ SCHEDULE TAB ═══════════════════════════════════════════════════ */}
-      {tab === 'schedule' && (
-        <div className="px-4 py-4 flex flex-col gap-4">
-          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex gap-2.5">
-            <span className="text-lg">🗓️</span>
-            <p className="text-xs text-blue-700 leading-relaxed">
-              Set your <strong>arrival time</strong> and <strong>work days</strong> for each task.
-              KORVIA will use this to keep your builder informed.
-            </p>
+            {/* Global FILES section when no tasks */}
+            {tasks.length === 0 && (
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                <h3 className="text-sm font-bold text-[#1A2B4A] uppercase tracking-wide mb-3">📎 Files &amp; Photos</h3>
+                <p className="text-gray-400 text-xs">Files will appear here once tasks are assigned to you.</p>
+              </div>
+            )}
           </div>
+        )}
 
-          {tasks.length === 0
-            ? <div className="text-center py-8 text-gray-400 text-sm">No tasks assigned yet</div>
-            : tasks.map((task: any) => {
-              const sch = schedules[task.id] ?? { sub_arrival_time: '', sub_work_days: [], sub_schedule_notes: '' }
-              const isSaving = schSaving === task.id
-              const isSaved  = schSaved  === task.id
-              return (
-                <div key={task.id} className="bg-white rounded-2xl shadow-sm p-4">
-                  <p className="text-sm font-bold text-[#1A2B4A] mb-3">{task.name}</p>
+        {/* ════════════ ESTIMATE TAB ════════════ */}
+        {activeTab === 'estimate' && (
+          <div className="flex flex-col gap-4 p-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2">
+              <span className="text-amber-500 shrink-0">⚠️</span>
+              <p className="text-amber-700 text-xs leading-relaxed">
+                Estimates submitted here are for reference only and do not constitute a binding contract or approval.
+              </p>
+            </div>
 
-                  {/* Arrival time */}
-                  <p className="text-xs text-gray-500 font-semibold mb-1.5">⏰ ARRIVAL TIME</p>
-                  <input type="time"
-                    value={sch.sub_arrival_time}
-                    onChange={e => setSchedules(s => ({ ...s, [task.id]: { ...sch, sub_arrival_time: e.target.value } }))}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-[#1A2B4A] font-semibold focus:outline-none focus:border-blue-400 mb-3"/>
-
-                  {/* Work days */}
-                  <p className="text-xs text-gray-500 font-semibold mb-1.5">📅 WORK DAYS</p>
-                  <div className="flex gap-1.5 flex-wrap mb-3">
-                    {WORK_DAYS.map(day => (
-                      <button key={day} onClick={() => toggleDay(task.id, day)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${
-                          sch.sub_work_days.includes(day)
-                            ? 'bg-[#2E7CF6] border-[#2E7CF6] text-white'
-                            : 'bg-gray-50 border-gray-200 text-gray-500'
-                        }`}>
-                        {day}
-                      </button>
-                    ))}
+            {/* Existing estimates */}
+            {estimates.length > 0 && (
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-3">
+                <h2 className="text-sm font-bold text-[#1A2B4A]">Submitted Estimates</h2>
+                {projEst && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Full Project</span>
+                    <span className="font-bold text-[#1A2B4A]">{fmtMoney(parseFloat(projEst.amount))}</span>
                   </div>
+                )}
+                {taskEsts.map(e => {
+                  const t = tasks.find(x => x.id === e.task_id)
+                  return (
+                    <div key={e.id} className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">{t?.name ?? 'Task'}</span>
+                      <span className="font-bold text-[#1A2B4A]">{fmtMoney(parseFloat(e.amount))}</span>
+                    </div>
+                  )
+                })}
+                {estimates.length > 1 && (
+                  <div className="border-t border-gray-100 pt-2 flex justify-between items-center">
+                    <span className="text-sm font-semibold text-gray-700">Total</span>
+                    <span className="font-bold text-[#1A2B4A] text-base">{fmtMoney(totalEst)}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
-                  {/* Notes */}
-                  <p className="text-xs text-gray-500 font-semibold mb-1.5">📝 SCHEDULE NOTES</p>
-                  <textarea placeholder="Any schedule details, breaks, special conditions…" rows={2}
-                    value={sch.sub_schedule_notes}
-                    onChange={e => setSchedules(s => ({ ...s, [task.id]: { ...sch, sub_schedule_notes: e.target.value } }))}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 focus:outline-none focus:border-blue-400 resize-none mb-3"/>
-
-                  <button onClick={() => saveSchedule(task.id)} disabled={isSaving}
-                    className={`w-full py-2.5 rounded-xl font-bold text-xs transition ${
-                      isSaved ? 'bg-green-500 text-white' : 'bg-[#2E7CF6] text-white active:scale-[0.97]'
-                    } disabled:opacity-60`}>
-                    {isSaving ? 'Saving…' : isSaved ? '✅ Saved!' : '💾 Save Schedule'}
-                  </button>
-                </div>
-              )
-            })
-          }
-        </div>
-      )}
-
-
-      {/* ══ REPORT TAB ═════════════════════════════════════════════════════ */}
-      {tab === 'report' && (
-        <div className="px-4 py-4 flex flex-col gap-4">
-          <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex gap-2.5">
-            <span className="text-lg">⚠️</span>
-            <p className="text-xs text-red-700 leading-relaxed">
-              Use this to report <strong>any issue on site</strong> — missing materials, safety concerns,
-              damage, or anything the builder needs to know.
-              KORVIA will <strong>notify your builder immediately by SMS</strong>.
-            </p>
-          </div>
-
-          {repSent && (
-            <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-center">
-              <p className="text-green-700 font-bold text-sm">✅ Report Sent!</p>
-              <p className="text-green-600 text-xs mt-1">KORVIA has notified your builder via SMS.</p>
-            </div>
-          )}
-
-          <div className="bg-white rounded-2xl shadow-sm p-4 flex flex-col gap-4">
-            {/* Issue type */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 mb-2">TYPE OF ISSUE</p>
-              <div className="flex flex-col gap-2">
-                {REPORT_TYPES.map(rt => (
-                  <button key={rt.value} onClick={() => setReport(r => ({ ...r, type: rt.value }))}
-                    className={`flex items-start gap-3 p-3 rounded-xl border text-left transition ${
-                      report.type === rt.value
-                        ? 'border-red-400 bg-red-50'
-                        : 'border-gray-200 bg-gray-50 active:scale-[0.98]'
+            {/* Submit new estimate */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-3">
+              <h2 className="text-sm font-bold text-[#1A2B4A]">Submit Estimate</h2>
+              <div className="flex gap-2">
+                {(['project','task'] as const).map(s => (
+                  <button key={s} onClick={() => setEstScope(s)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition ${
+                      estScope===s ? 'bg-[#1A2B4A] text-white border-[#1A2B4A]' : 'bg-gray-50 text-gray-500 border-gray-200'
                     }`}>
-                    <span className="text-base leading-none mt-0.5">{rt.label.split(' ')[0]}</span>
+                    {s==='project' ? 'Full Project' : 'Per Task'}
+                  </button>
+                ))}
+              </div>
+              {estScope === 'task' && (
+                <select value={estTaskId} onChange={e => setEstTaskId(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A]">
+                  <option value="">Select task…</option>
+                  {tasks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+              {estScope === 'task' && tasks.length === 0 && (
+                <p className="text-xs text-gray-400 italic">No tasks available. Your builder hasn't added any yet.</p>
+              )}
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                <input type="number" placeholder="0" value={estAmt}
+                  onChange={e => setEstAmt(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl pl-7 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A]"/>
+              </div>
+              <textarea rows={3} placeholder="Notes (optional)…" value={estNotes}
+                onChange={e => setEstNotes(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A] resize-none"/>
+              <button onClick={submitEstimate} disabled={submittingEst || !estAmt || (estScope==='task' && !estTaskId && tasks.length>0)}
+                className="w-full bg-[#1A2B4A] text-white py-3 rounded-xl font-semibold text-sm active:scale-95 disabled:opacity-50">
+                {submittingEst ? 'Submitting…' : 'Submit Estimate'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════ SCHEDULE TAB ════════════ */}
+        {activeTab === 'schedule' && (
+          <div className="flex flex-col gap-4 p-4">
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-4">
+              <h2 className="text-sm font-bold text-[#1A2B4A] uppercase tracking-wide">Your Schedule</h2>
+
+              <div>
+                <label className="text-xs text-gray-500 block mb-1.5">Typical Arrival Time</label>
+                <input type="time" value={schedule.sub_arrival_time}
+                  onChange={e => setSchedule(p => ({ ...p, sub_arrival_time: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A]"/>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 block mb-1.5">Work Days</label>
+                <div className="flex flex-wrap gap-2">
+                  {WORK_DAYS.map(d => (
+                    <button key={d}
+                      onClick={() => setSchedule(p => ({
+                        ...p,
+                        sub_work_days: p.sub_work_days.includes(d)
+                          ? p.sub_work_days.filter(x => x !== d)
+                          : [...p.sub_work_days, d]
+                      }))}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                        schedule.sub_work_days.includes(d)
+                          ? 'bg-[#1A2B4A] text-white border-[#1A2B4A]'
+                          : 'bg-gray-50 text-gray-500 border-gray-200'
+                      }`}>
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 block mb-1.5">Schedule Notes</label>
+                <textarea rows={3}
+                  placeholder="e.g. Need loading dock access by 7am…"
+                  value={schedule.sub_schedule_notes}
+                  onChange={e => setSchedule(p => ({ ...p, sub_schedule_notes: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A] resize-none"/>
+              </div>
+
+              <button onClick={saveSchedule} disabled={saving}
+                className="w-full bg-[#1A2B4A] text-white py-3 rounded-xl font-semibold text-sm active:scale-95 disabled:opacity-50">
+                {saving ? 'Saving…' : '💾 Save Schedule'}
+              </button>
+            </div>
+
+            {tasks.length === 0 ? (
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+                <p className="text-3xl mb-2">📅</p>
+                <p className="text-gray-500 text-sm">No tasks to schedule yet.</p>
+                <p className="text-gray-400 text-xs mt-1">Once your builder adds tasks, you can set per-task dates in the Project tab.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-2">
+                <h2 className="text-sm font-bold text-[#1A2B4A] uppercase tracking-wide mb-1">Your Tasks</h2>
+                {tasks.map(t => (
+                  <div key={t.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <span className="text-sm text-gray-700">{t.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_OPTIONS.find(o=>o.value===taskStatus[t.id])?.cls ?? 'border-gray-200 bg-gray-50 text-gray-500'}`}>
+                      {STATUS_OPTIONS.find(o=>o.value===taskStatus[t.id])?.label ?? 'Pending'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ════════════ REPORT TAB ════════════ */}
+        {activeTab === 'report' && (
+          <div className="flex flex-col gap-4 p-4">
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-4">
+              <h2 className="text-sm font-bold text-[#1A2B4A] uppercase tracking-wide">Submit a Report</h2>
+
+              {/* Type */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-gray-500">Report Type</label>
+                {REPORT_TYPES.map(rt => (
+                  <button key={rt.value}
+                    onClick={() => setReportType(rt.value)}
+                    className={`flex items-start gap-3 p-3 rounded-xl border text-left transition ${
+                      reportType===rt.value ? 'border-[#1A2B4A] bg-blue-50' : 'border-gray-200 bg-gray-50'
+                    }`}>
+                    <span className="text-base shrink-0 mt-0.5">{rt.label.split(' ')[0]}</span>
                     <div>
-                      <p className={`text-xs font-bold ${report.type === rt.value ? 'text-red-700' : 'text-gray-700'}`}>
+                      <p className={`text-xs font-semibold ${reportType===rt.value ? 'text-[#1A2B4A]' : 'text-gray-700'}`}>
                         {rt.label.split(' ').slice(1).join(' ')}
                       </p>
-                      <p className="text-xs text-gray-400">{rt.desc}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{rt.desc}</p>
                     </div>
                   </button>
                 ))}
               </div>
-            </div>
 
-            {/* Task (optional) */}
-            {tasks.length > 0 && (
+              {/* Task selector */}
               <div>
-                <p className="text-xs font-semibold text-gray-500 mb-2">RELATED TASK (optional)</p>
-                <select value={report.task_id}
-                  onChange={e => setReport(r => ({ ...r, task_id: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:border-blue-400 bg-white">
-                  <option value="">— Not task-specific —</option>
-                  {tasks.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                <label className="text-xs text-gray-500 block mb-1.5">Related Task (optional)</label>
+                <select value={reportTask} onChange={e => setReportTask(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A]">
+                  <option value="">Not task-specific</option>
+                  {tasks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
-            )}
 
-            {/* Urgency */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 mb-2">URGENCY</p>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { v: 'normal',    l: '🟡 Normal',    c: 'border-yellow-300 bg-yellow-50 text-yellow-700' },
-                  { v: 'urgent',    l: '🔴 Urgent',    c: 'border-red-400 bg-red-50 text-red-700' },
-                  { v: 'emergency', l: '🆘 Emergency',  c: 'border-red-600 bg-red-100 text-red-800' },
-                ].map(u => (
-                  <button key={u.v} onClick={() => setReport(r => ({ ...r, urgency: u.v }))}
-                    className={`py-2 rounded-xl border text-xs font-bold transition ${
-                      report.urgency === u.v ? u.c + ' ring-1 ring-current ring-offset-1' : 'border-gray-200 bg-gray-50 text-gray-500'
-                    }`}>
-                    {u.l}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Description */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 mb-2">DESCRIPTION</p>
-              <textarea rows={4} placeholder="Describe the issue clearly — what you found, where, and what's needed…"
-                value={report.description}
-                onChange={e => setReport(r => ({ ...r, description: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:border-red-300 resize-none"/>
-            </div>
-
-            <button onClick={submitReport} disabled={repSending || !report.type || !report.description.trim()}
-              className="w-full py-3.5 rounded-2xl bg-red-500 text-white font-bold text-sm disabled:opacity-50 active:scale-[0.98] transition">
-              {repSending ? 'Sending…' : '🚨 Send Report to Builder'}
-            </button>
-          </div>
-        </div>
-      )}
-
-
-      {/* ══ MESSAGES TAB ═══════════════════════════════════════════════════ */}
-      {tab === 'messages' && (
-        <div className="flex flex-col h-[calc(100vh-220px)]">
-          <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
-            {messages.length === 0 && (
-              <div className="text-center py-8 text-gray-400 text-sm">
-                <p className="text-2xl mb-2">🤖</p>
-                <p>No messages yet. Say hello to KORVIA!</p>
-              </div>
-            )}
-            {messages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.sender === 'sub' ? 'justify-end' : 'justify-start'}`}>
-                {msg.sender === 'korvia' && (
-                  <div className="w-7 h-7 rounded-full bg-[#1A2B4A] flex items-center justify-center text-xs mr-2 mt-1 shrink-0">🤖</div>
-                )}
-                <div className={`max-w-[78%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                  msg.sender === 'sub'
-                    ? 'bg-[#2E7CF6] text-white rounded-br-sm'
-                    : 'bg-white text-[#1A2B4A] shadow-sm rounded-bl-sm'
-                }`}>
-                  <p>{msg.content}</p>
-                  <p className={`text-xs mt-1 ${msg.sender === 'sub' ? 'text-white/60' : 'text-gray-400'}`}>
-                    {format(parseISO(msg.created_at), 'h:mm a')}
-                  </p>
+              {/* Urgency */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1.5">Urgency Level</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { v:'low',       l:'🟢 Low',       cls:'border-green-300 bg-green-50 text-green-700'  },
+                    { v:'medium',    l:'🟡 Medium',     cls:'border-yellow-300 bg-yellow-50 text-yellow-700'},
+                    { v:'high',      l:'🔴 High',       cls:'border-red-300 bg-red-50 text-red-700'        },
+                    { v:'emergency', l:'🆘 Emergency',  cls:'border-red-500 bg-red-100 text-red-800'        },
+                  ] as const).map(u => (
+                    <button key={u.v} onClick={() => setReportUrgency(u.v)}
+                      className={`py-2 px-3 rounded-lg text-xs font-semibold border transition ${
+                        reportUrgency===u.v ? u.cls : 'border-gray-200 bg-gray-50 text-gray-500'
+                      }`}>
+                      {u.l}
+                    </button>
+                  ))}
                 </div>
               </div>
-            ))}
-            <div ref={messagesEndRef}/>
-          </div>
 
-          {/* input */}
-          <div className="px-4 py-3 bg-white border-t border-gray-100 flex gap-2">
-            <input
-              value={msgInput} placeholder="Message KORVIA…"
-              onChange={e => setMsgInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              className="flex-1 border border-gray-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#2E7CF6]"/>
-            <button onClick={sendMessage} disabled={msgSending || !msgInput.trim()}
-              className="px-4 py-2.5 rounded-2xl bg-[#2E7CF6] text-white font-bold text-sm disabled:opacity-50 active:scale-[0.97] transition">
-              {msgSending ? '…' : '→'}
-            </button>
-          </div>
-        </div>
-      )}
+              {/* Description */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1.5">Description</label>
+                <textarea rows={4}
+                  placeholder="Describe the issue in detail…"
+                  value={reportDesc}
+                  onChange={e => setReportDesc(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A] resize-none"/>
+              </div>
 
-    </div>  // end main portal div
+              <button onClick={sendReport} disabled={sendingReport || !reportType || !reportDesc.trim()}
+                className="w-full bg-red-600 text-white py-3 rounded-xl font-semibold text-sm active:scale-95 disabled:opacity-50">
+                {sendingReport ? 'Sending…' : '📤 Submit Report to Builder'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════ MESSAGES TAB ════════════ */}
+        {activeTab === 'messages' && (
+          <div className="flex flex-col" style={{ height: 'calc(100vh - 160px)' }}>
+            {/* thread */}
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+              {messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <span className="text-4xl">🤖</span>
+                  <p className="text-gray-500 text-sm font-semibold">Chat with KORVIA</p>
+                  <p className="text-gray-400 text-xs text-center leading-relaxed">
+                    Ask questions about your tasks, report issues, or get help with anything on this project.
+                  </p>
+                </div>
+              ) : (
+                messages.map(m => (
+                  <div key={m.id} className={`flex ${m.sender==='sub' ? 'justify-end' : 'justify-start'}`}>
+                    {m.sender !== 'sub' && (
+                      <div className="bg-[#1A2B4A] text-white rounded-2xl rounded-tl-sm p-3 max-w-[80%]">
+                        <p className="text-xs opacity-60 mb-1 font-semibold">KORVIA</p>
+                        <p className="text-sm leading-relaxed">{m.content}</p>
+                        <p className="text-xs opacity-40 mt-1 text-right">
+                          {format(parseISO(m.created_at), 'h:mm a')}
+                        </p>
+                      </div>
+                    )}
+                    {m.sender === 'sub' && (
+                      <div className="bg-white border border-gray-200 rounded-2xl rounded-tr-sm p-3 max-w-[80%] shadow-sm">
+                        <p className="text-sm text-gray-800 leading-relaxed">{m.content}</p>
+                        <p className="text-xs text-gray-400 mt-1 text-right">
+                          {format(parseISO(m.created_at), 'h:mm a')}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+              <div ref={msgEndRef}/>
+            </div>
+
+            {/* input */}
+            <div className="border-t border-gray-100 bg-white p-3 flex gap-2 items-end">
+              <textarea
+                rows={2}
+                placeholder="Message KORVIA…"
+                value={msgInput}
+                onChange={e => setMsgInput(e.target.value)}
+                onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1A2B4A] resize-none"/>
+              <button onClick={sendMessage} disabled={sendingMsg || !msgInput.trim()}
+                className="bg-[#1A2B4A] text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50 active:scale-95 self-end">
+                {sendingMsg ? '…' : '→'}
+              </button>
+            </div>
+          </div>
+        )}
+
+      </div>{/* end tab content */}
+    </div>
   )
 }
