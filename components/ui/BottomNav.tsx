@@ -10,23 +10,20 @@ export default function BottomNav() {
   const tabs = [
     {
       href: '/dashboard',
-      label: 'Dashboard',
+      label: 'Home',
       icon: (active: boolean) => (
-        <svg width="22" height="22" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
-          <rect x="3" y="3" width="7" height="7" rx="1"/>
-          <rect x="14" y="3" width="7" height="7" rx="1"/>
-          <rect x="3" y="14" width="7" height="7" rx="1"/>
-          <rect x="14" y="14" width="7" height="7" rx="1"/>
+        <svg width="21" height="21" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
         </svg>
       ),
     },
     {
-      href: '/projects',
-      label: 'Projects',
+      href: '/messages',
+      label: 'Messages',
       icon: (active: boolean) => (
-        <svg width="22" height="22" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
-          <path d="M2 7l10-5 10 5v10l-10 5-10-5V7z"/>
-          <path d="M12 2v20M2 7l10 5 10-5"/>
+        <svg width="21" height="21" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
       ),
     },
@@ -35,9 +32,21 @@ export default function BottomNav() {
       label: 'Alerts',
       badge: unread,
       icon: (active: boolean) => (
-        <svg width="22" height="22" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
+        <svg width="21" height="21" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+      ),
+    },
+    {
+      href: '/subs',
+      label: 'Subs',
+      icon: (active: boolean) => (
+        <svg width="21" height="21" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
         </svg>
       ),
     },
@@ -45,7 +54,7 @@ export default function BottomNav() {
       href: '/help',
       label: 'Help',
       icon: (active: boolean) => (
-        <svg width="22" height="22" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
+        <svg width="21" height="21" fill="none" stroke={active ? '#2E7CF6' : '#94a3b8'} strokeWidth="2" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="10"/>
           <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
           <line x1="12" y1="17" x2="12.01" y2="17" strokeLinecap="round" strokeWidth="2.5"/>
