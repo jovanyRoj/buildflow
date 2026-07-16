@@ -81,7 +81,15 @@ export default function SubPortal() {
   const [taskFiles,     setTaskFiles]     = useState<Record<string,any[]>>({})
   const [taskStatus,    setTaskStatus]    = useState<Record<string,string>>({})
   const [taskDates,     setTaskDates]     = useState<Record<string,{start:string;end:string}>>({})
-  const [schedule,      setSchedule]      = useState({sub_arrival_time:'',sub_work_days:[] as string[],sub_schedule_notes:''})
+  type DaySchedule = {active:boolean; start:string; end:string}
+  const mkDay = (a=false,s='07:00',e='17:00'):DaySchedule => ({active:a,start:s,end:e})
+  const [weekSchedule,  setWeekSchedule]  = useState<Record<string,DaySchedule>>({
+    Mon:mkDay(), Tue:mkDay(), Wed:mkDay(), Thu:mkDay(), Fri:mkDay(),
+    Sat:mkDay(false,'08:00','15:00'), Sun:mkDay(false,'08:00','15:00'),
+  })
+  const [scheduleNotes, setScheduleNotes] = useState('')
+  const [projectStatus, setProjectStatus] = useState('in_progress')
+  const [uploadDesc,    setUploadDesc]    = useState<Record<string,string>>({})
   const [activeTab,     setActiveTab]     = useState('project')
   const [uploading,     setUploading]     = useState<Record<string,boolean>>({})
   const [askKorvia,     setAskKorvia]     = useState<Record<string,{open:boolean;q:string;a:string;loading:boolean}>>({})
@@ -129,11 +137,22 @@ export default function SubPortal() {
       })
       setTaskStatus(statusMap)
       setTaskDates(datesMap)
-      setSchedule({
-        sub_arrival_time:  d.sub?.sub_arrival_time   || '',
-        sub_work_days:     d.sub?.sub_work_days       || [],
-        sub_schedule_notes:d.sub?.sub_schedule_notes  || '',
+      // init weekly schedule from saved data
+      const savedDays:string[]   = d.sub?.sub_work_days       || []
+      const savedArrival:string  = d.sub?.sub_arrival_time    || '07:00'
+      const savedWeek:Record<string,any> = d.sub?.sub_week_schedule || {}
+      setWeekSchedule(prev=>{
+        const next={...prev}
+        WORK_DAYS.forEach(day=>{
+          next[day] = savedWeek[day] ?? {
+            active: savedDays.includes(day),
+            start:  savedArrival,
+            end:    '17:00',
+          }
+        })
+        return next
       })
+      setScheduleNotes(d.sub?.sub_schedule_notes || '')
 
       try {
         const er = await fetch(`${base}/estimate`)
@@ -167,18 +186,39 @@ export default function SubPortal() {
 
   async function handleUpload(taskId:string, file:File) {
     setUploading(p=>({...p,[taskId]:true}))
+    const desc = uploadDesc[taskId]||''
     const fd = new FormData()
     fd.append('file',file); fd.append('task_id',taskId)
+    if (desc) fd.append('description',desc)
     await fetch(`${base}/upload`,{method:'POST',body:fd})
+    // notify KORVIA about the upload so it can process the evidence
+    if (desc) {
+      const task = tasks.find((t:any)=>t.id===taskId)
+      await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'send_message',
+          content:`📎 Evidence uploaded for task "${task?.name||taskId}": ${desc} [File: ${file.name}]`,
+        })})
+    }
     const r = await fetch(base)
-    if (r.ok) { const d=await r.json(); reloadFiles(d.files||[]) }
+    if (r.ok) { const d=await r.json(); reloadFiles(d.files||[]); setMessages(d.messages||[]) }
+    setUploadDesc(p=>({...p,[taskId]:''}))
     setUploading(p=>({...p,[taskId]:false}))
   }
 
   async function saveSchedule() {
     setSaving(true)
+    // derive legacy fields for backward compat + send full week
+    const activeDays = WORK_DAYS.filter(d=>weekSchedule[d]?.active)
+    const firstStart = weekSchedule[activeDays[0]||'Mon']?.start || '07:00'
     await fetch(base,{method:'PATCH',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'update_schedule',...schedule})})
+      body:JSON.stringify({
+        action:'update_schedule',
+        sub_work_days:       activeDays,
+        sub_arrival_time:    firstStart,
+        sub_schedule_notes:  scheduleNotes,
+        sub_week_schedule:   weekSchedule,
+      })})
     setSaving(false)
   }
 
@@ -411,56 +451,111 @@ export default function SubPortal() {
         {/* ── SCHEDULE ─────────────────────────────────────────────────── */}
         {activeTab==='schedule' && (
           <div className="space-y-4">
+            {/* weekly calendar grid */}
             <div className={cardCls}>
-              <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-3">Your Schedule</p>
-              <div className="space-y-4">
-                <div>
-                  <label className={labelCls}>Typical arrival time</label>
-                  <input type="time" value={schedule.sub_arrival_time}
-                    onChange={e=>setSchedule(p=>({...p,sub_arrival_time:e.target.value}))}
-                    className={inputCls}/>
+              <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-1">Weekly Calendar</p>
+              <p className="text-white/30 text-[10px] mb-4">Toggle each day and set your exact hours on site</p>
+
+              <div className="space-y-1">
+                {/* header row */}
+                <div className="grid grid-cols-[2.5rem_1fr_1fr] gap-2 mb-2 px-1">
+                  <div/>
+                  <p className="text-white/30 text-[10px] uppercase tracking-wide text-center">Arrival</p>
+                  <p className="text-white/30 text-[10px] uppercase tracking-wide text-center">Departure</p>
                 </div>
 
-                <div>
-                  <label className={labelCls}>Working days</label>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {WORK_DAYS.map(d=>{
-                      const active = schedule.sub_work_days.includes(d)
-                      return (
-                        <button key={d} onClick={()=>setSchedule(p=>({
-                          ...p,
-                          sub_work_days: active
-                            ? p.sub_work_days.filter(x=>x!==d)
-                            : [...p.sub_work_days,d]
-                        }))}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition
-                            ${active?'bg-blue-500 border-blue-400 text-white':'bg-white/5 border-white/20 text-white/60 hover:bg-white/10'}`}>
-                          {d}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <label className={labelCls}>Schedule notes</label>
-                  <textarea rows={3} value={schedule.sub_schedule_notes}
-                    placeholder="e.g. Need access by 7am, lunch 12–1pm…"
-                    onChange={e=>setSchedule(p=>({...p,sub_schedule_notes:e.target.value}))}
-                    className={inputCls}/>
-                </div>
-
-                <button onClick={saveSchedule} disabled={saving} className={btnPrimary}>
-                  {saving?'Saving…':'Save Schedule'}
-                </button>
+                {WORK_DAYS.map(day=>{
+                  const d = weekSchedule[day]||{active:false,start:'07:00',end:'17:00'}
+                  return (
+                    <div key={day}
+                      className={`grid grid-cols-[2.5rem_1fr_1fr] gap-2 items-center rounded-xl px-2 py-2 transition
+                        ${d.active?'bg-blue-500/10 border border-blue-400/20':'bg-white/[0.03] border border-white/5'}`}>
+                      {/* day toggle */}
+                      <button
+                        onClick={()=>setWeekSchedule(p=>({...p,[day]:{...d,active:!d.active}}))}
+                        className={`flex flex-col items-center gap-0.5 rounded-lg py-1 transition
+                          ${d.active?'text-blue-300':'text-white/30'}`}>
+                        <span className="text-[10px] font-bold">{day}</span>
+                        <span className="text-base leading-none">{d.active?'✓':'○'}</span>
+                      </button>
+                      {/* arrival */}
+                      <input type="time" value={d.start}
+                        disabled={!d.active}
+                        onChange={e=>setWeekSchedule(p=>({...p,[day]:{...d,start:e.target.value}}))}
+                        className={`rounded-lg border text-center text-sm font-semibold py-2 px-1 w-full transition
+                          focus:outline-none focus:ring-2 focus:ring-blue-400/60
+                          ${d.active
+                            ? 'bg-white/10 border-white/20 text-white'
+                            : 'bg-white/5 border-white/10 text-white/20 cursor-not-allowed'}`}/>
+                      {/* departure */}
+                      <input type="time" value={d.end}
+                        disabled={!d.active}
+                        onChange={e=>setWeekSchedule(p=>({...p,[day]:{...d,end:e.target.value}}))}
+                        className={`rounded-lg border text-center text-sm font-semibold py-2 px-1 w-full transition
+                          focus:outline-none focus:ring-2 focus:ring-blue-400/60
+                          ${d.active
+                            ? 'bg-white/10 border-white/20 text-white'
+                            : 'bg-white/5 border-white/10 text-white/20 cursor-not-allowed'}`}/>
+                    </div>
+                  )
+                })}
               </div>
+
+              {/* quick summary */}
+              {WORK_DAYS.filter(d=>weekSchedule[d]?.active).length>0 && (
+                <div className="mt-3 bg-blue-500/10 border border-blue-400/20 rounded-xl p-3">
+                  <p className="text-blue-300 text-xs font-medium mb-1">📅 Your active schedule</p>
+                  {WORK_DAYS.filter(d=>weekSchedule[d]?.active).map(d=>(
+                    <p key={d} className="text-white/70 text-xs">
+                      <span className="font-semibold w-8 inline-block">{d}</span>
+                      {weekSchedule[d].start} – {weekSchedule[d].end}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* notes */}
+            <div className={cardCls}>
+              <label className={labelCls}>Schedule notes</label>
+              <textarea rows={3} value={scheduleNotes}
+                placeholder="e.g. Need site access by 6:30am, lunch 12–1pm, leaving by 3pm Fridays…"
+                onChange={e=>setScheduleNotes(e.target.value)}
+                className={inputCls}/>
+            </div>
+
+            <button onClick={saveSchedule} disabled={saving} className={btnPrimary}>
+              {saving?'Saving…':'Save Schedule 📅'}
+            </button>
           </div>
         )}
 
         {/* ── TASKS ────────────────────────────────────────────────────── */}
         {activeTab==='tasks' && (
           <div className="space-y-4">
+
+            {/* PROJECT-LEVEL STATUS */}
+            <div className={cardCls}>
+              <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-3">Overall Project Status</p>
+              <div className="flex flex-wrap gap-2">
+                {STATUS_OPTIONS.map(opt=>(
+                  <button key={opt.value}
+                    onClick={async()=>{
+                      setProjectStatus(opt.value)
+                      await fetch(base,{method:'PATCH',headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify({action:'update_project_status',status:opt.value})})
+                    }}
+                    className={`text-xs px-3 py-2 rounded-xl border font-medium transition
+                      ${projectStatus===opt.value
+                        ? opt.cls+' ring-2 ring-offset-1 ring-offset-[#0f1e35] ring-current'
+                        : 'bg-white/5 border-white/15 text-white/60 hover:bg-white/10'}`}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-white/30 text-[10px] mt-2">This reports your overall progress to the builder and KORVIA.</p>
+            </div>
+
             {tasks.length===0 && (
               <div className={cardCls+' text-center py-8'}>
                 <p className="text-3xl mb-2">📋</p>
@@ -517,15 +612,32 @@ export default function SubPortal() {
                     {saving?'Saving…':savedDates?'✓ Saved!':'Save My Dates'}
                   </button>
 
-                  <div>
-                    <label className={labelCls}>Upload Photos / Docs</label>
-                    <label className="mt-1 flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-white/20 text-white/50 text-xs cursor-pointer hover:border-blue-400/50 hover:text-blue-300 transition">
+                  {/* ── EVIDENCE UPLOAD ── */}
+                  <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 space-y-2">
+                    <p className="text-white/50 text-xs font-medium uppercase tracking-wide">📎 Evidence for KORVIA</p>
+                    <p className="text-white/30 text-[10px]">Upload inspection photos or PDFs. KORVIA reads your description to notify the builder automatically.</p>
+
+                    <textarea rows={2}
+                      value={uploadDesc[task.id]||''}
+                      placeholder="Describe what you're uploading — e.g. Inspection passed, framing complete. or Crack found in east wall slab."
+                      onChange={e=>setUploadDesc(p=>({...p,[task.id]:e.target.value}))}
+                      className={inputCls+' text-xs'}/>
+
+                    <label className={`flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed transition
+                      ${uploading[task.id]
+                        ? 'border-blue-400/40 text-blue-300 cursor-wait'
+                        : 'border-white/20 text-white/50 cursor-pointer hover:border-blue-400/50 hover:text-blue-300'}`}>
                       <input type="file" className="sr-only" accept="image/*,application/pdf"
+                        disabled={uploading[task.id]}
                         onChange={e=>{ const f=e.target.files?.[0]; if(f) handleUpload(task.id,f) }}/>
-                      {uploading[task.id]?'Uploading…':'📎 Tap to attach file'}
+                      {uploading[task.id]
+                        ? <><span className="animate-pulse">⏳</span> Uploading &amp; notifying KORVIA…</>
+                        : <><span>📷</span> Tap to upload photo or PDF</>}
                     </label>
+
                     {files.length>0 && (
-                      <div className="mt-2 space-y-1">
+                      <div className="space-y-1 pt-1 border-t border-white/10">
+                        <p className="text-white/30 text-[10px] uppercase tracking-wide">Uploaded files</p>
                         {files.map((f:any,i:number)=>(
                           <a key={i} href={f.url||f.file_url} target="_blank" rel="noreferrer"
                             className="flex items-center gap-2 text-xs text-blue-300 hover:text-blue-200 py-1">
