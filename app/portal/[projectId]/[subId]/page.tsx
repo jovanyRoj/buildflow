@@ -97,39 +97,69 @@ export default function SubPortal() {
   const msgEndRef = useRef<HTMLDivElement>(null)
 
   // ── load ─────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    async function load() {
-      const r = await fetch(`/api/portal/${projectId}/${subId}`)
-      if (!r.ok) { setAuthStep('fail'); return }
-      const d = await r.json()
-      setProject(d.project); setSub(d.sub); setTasks(d.tasks ?? [])
-      setMessages(d.messages ?? []); setEstimates(d.estimates ?? [])
-      if (d.schedule) setSchedule(d.schedule)
-      // init task statuses
-      const st: Record<string,string> = {}
-      const td: Record<string,{start:string;end:string}> = {}
-      const kq: Record<string,{open:boolean;q:string;a:string;loading:boolean}> = {}
-      for (const t of (d.tasks ?? [])) {
-        st[t.id] = t.status ?? 'pending'
-        td[t.id] = { start: t.sub_start_date?.slice(0,10) ?? '', end: t.sub_end_date?.slice(0,10) ?? '' }
-        kq[t.id] = { open:false, q:'', a:'', loading:false }
-      }
-      setTaskStatus(st); setTaskDates(td); setAskKorvia(kq)
-      // load files for each task
-      for (const t of (d.tasks ?? [])) fetchFiles(t.id)
-      setAuthStep('gate')
+  async function loadPortal() {
+    const r = await fetch(`/api/portal/${projectId}/${subId}`)
+    if (!r.ok) { setAuthStep('fail'); return }
+    const d = await r.json()
+    setProject(d.project); setSub(d.sub); setTasks(d.tasks ?? [])
+    setMessages(d.messages ?? [])
+
+    // Fetch estimates from dedicated endpoint
+    try {
+      const er = await fetch(`/api/portal/${projectId}/${subId}/estimate`)
+      if (er.ok) { const ed = await er.json(); setEstimates(ed.estimates ?? []) }
+    } catch {}
+
+    // Build files map from GET response (keyed by task_id)
+    const filesMap: Record<string,any[]> = {}
+    for (const f of (d.files ?? [])) {
+      const key = f.task_id ?? '__project__'
+      if (!filesMap[key]) filesMap[key] = []
+      filesMap[key].push({ url: f.file_url, name: f.name, type: f.file_type })
     }
-    load()
+    setTaskFiles(filesMap)
+
+    // Extract schedule from first task that has schedule data
+    const taskWithSchedule = (d.tasks ?? []).find((t: any) => t.sub_arrival_time || t.sub_work_days?.length)
+    if (taskWithSchedule) {
+      setSchedule({
+        sub_arrival_time: taskWithSchedule.sub_arrival_time ?? '',
+        sub_work_days: taskWithSchedule.sub_work_days ?? [],
+        sub_schedule_notes: taskWithSchedule.sub_schedule_notes ?? ''
+      })
+    }
+
+    // Init per-task state
+    const st: Record<string,string> = {}
+    const td: Record<string,{start:string;end:string}> = {}
+    const kq: Record<string,{open:boolean;q:string;a:string;loading:boolean}> = {}
+    for (const t of (d.tasks ?? [])) {
+      st[t.id] = t.status ?? 'pending'
+      td[t.id] = { start: t.sub_start_date?.slice(0,10) ?? '', end: t.sub_end_date?.slice(0,10) ?? '' }
+      kq[t.id] = { open:false, q:'', a:'', loading:false }
+    }
+    setTaskStatus(st); setTaskDates(td); setAskKorvia(kq)
+    setAuthStep('gate')
+  }
+
+  useEffect(() => {
+    loadPortal()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, subId])
 
   useEffect(() => { msgEndRef.current?.scrollIntoView({ behavior:'smooth' }) }, [messages])
 
-  async function fetchFiles(taskId: string) {
-    const r = await fetch(`/api/portal/${projectId}/${subId}/files?taskId=${taskId}`)
+  async function reloadFiles() {
+    const r = await fetch(`/api/portal/${projectId}/${subId}`)
     if (!r.ok) return
     const d = await r.json()
-    setTaskFiles(prev => ({ ...prev, [taskId]: d.files ?? [] }))
+    const filesMap: Record<string,any[]> = {}
+    for (const f of (d.files ?? [])) {
+      const key = f.task_id ?? '__project__'
+      if (!filesMap[key]) filesMap[key] = []
+      filesMap[key].push({ url: f.file_url, name: f.name, type: f.file_type })
+    }
+    setTaskFiles(filesMap)
   }
 
   // ── auth handler ─────────────────────────────────────────────────────────
@@ -177,7 +207,7 @@ export default function SubPortal() {
     setUploading(p => ({ ...p, [taskId]: true }))
     const fd = new FormData(); fd.append('file', file); fd.append('taskId', taskId)
     await fetch(`/api/portal/${projectId}/${subId}/upload`, { method:'POST', body: fd })
-    await fetchFiles(taskId)
+    await reloadFiles()
     setUploading(p => ({ ...p, [taskId]: false }))
     e.target.value = ''
   }
@@ -197,14 +227,18 @@ export default function SubPortal() {
   async function sendMessage() {
     if (!msgInput.trim()) return
     setSendingMsg(true)
-    const r = await fetch(`/api/portal/${projectId}/${subId}/message`, {
+    const r = await fetch(`/api/portal/${projectId}/${subId}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ content: msgInput.trim() })
+      body: JSON.stringify({ action: 'send_message', content: msgInput.trim() })
     })
     if (r.ok) {
       const d = await r.json()
-      setMessages(p => [...p, d.message, ...(d.korvia ? [d.korvia] : [])])
+      setMessages(p => [
+        ...p,
+        ...(d.message ? [d.message] : []),
+        ...(d.korviaReply ? [d.korviaReply] : []),
+      ])
       setMsgInput('')
     }
     setSendingMsg(false)
