@@ -81,12 +81,9 @@ export default function SubPortal() {
   const [taskFiles,     setTaskFiles]     = useState<Record<string,any[]>>({})
   const [taskStatus,    setTaskStatus]    = useState<Record<string,string>>({})
   const [taskDates,     setTaskDates]     = useState<Record<string,{start:string;end:string}>>({})
-  type DaySchedule = {active:boolean; start:string; end:string}
-  const mkDay = (a=false,s='07:00',e='17:00'):DaySchedule => ({active:a,start:s,end:e})
-  const [weekSchedule,  setWeekSchedule]  = useState<Record<string,DaySchedule>>({
-    Mon:mkDay(), Tue:mkDay(), Wed:mkDay(), Thu:mkDay(), Fri:mkDay(),
-    Sat:mkDay(false,'08:00','15:00'), Sun:mkDay(false,'08:00','15:00'),
-  })
+  const [dateSchedule,  setDateSchedule]  = useState<Record<string,{start:string;end:string}>>({})
+  const [calOffset,     setCalOffset]     = useState(0)
+  const [selDate,       setSelDate]       = useState<string|null>(null)
   const [scheduleNotes, setScheduleNotes] = useState('')
   const [projectStatus, setProjectStatus] = useState('in_progress')
   const [uploadDesc,    setUploadDesc]    = useState<Record<string,string>>({})
@@ -137,21 +134,7 @@ export default function SubPortal() {
       })
       setTaskStatus(statusMap)
       setTaskDates(datesMap)
-      // init weekly schedule from saved data
-      const savedDays:string[]   = d.sub?.sub_work_days       || []
-      const savedArrival:string  = d.sub?.sub_arrival_time    || '07:00'
-      const savedWeek:Record<string,any> = d.sub?.sub_week_schedule || {}
-      setWeekSchedule(prev=>{
-        const next={...prev}
-        WORK_DAYS.forEach(day=>{
-          next[day] = savedWeek[day] ?? {
-            active: savedDays.includes(day),
-            start:  savedArrival,
-            end:    '17:00',
-          }
-        })
-        return next
-      })
+      setDateSchedule(d.sub?.sub_date_schedule || {})
       setScheduleNotes(d.sub?.sub_schedule_notes || '')
 
       try {
@@ -173,6 +156,12 @@ export default function SubPortal() {
     setTaskStatus(p=>({...p,[taskId]:val}))
     await fetch(base,{method:'PATCH',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'update_task_status',task_id:taskId,status:val})})
+    // notify KORVIA so it updates the project timeline
+    const task = tasks.find((t:any)=>t.id===taskId)
+    const stLabel = STATUS_OPTIONS.find(s=>s.value===val)?.label||val
+    await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'send_message',
+        content:`📋 Task status update: "${task?.name||taskId}" → ${stLabel}. Please update the project timeline.`})})
   }
 
   async function saveDates(taskId:string) {
@@ -208,17 +197,22 @@ export default function SubPortal() {
 
   async function saveSchedule() {
     setSaving(true)
-    // derive legacy fields for backward compat + send full week
-    const activeDays = WORK_DAYS.filter(d=>weekSchedule[d]?.active)
-    const firstStart = weekSchedule[activeDays[0]||'Mon']?.start || '07:00'
+    const sortedDates = Object.keys(dateSchedule).sort()
+    const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
     await fetch(base,{method:'PATCH',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         action:'update_schedule',
-        sub_work_days:       activeDays,
-        sub_arrival_time:    firstStart,
-        sub_schedule_notes:  scheduleNotes,
-        sub_week_schedule:   weekSchedule,
+        sub_date_schedule:  dateSchedule,
+        sub_schedule_notes: scheduleNotes,
+        sub_work_days:      [...new Set(sortedDates.map(d=>DOW[new Date(d+'T12:00:00').getDay()]))],
+        sub_arrival_time:   dateSchedule[sortedDates[0]]?.start || '07:00',
       })})
+    if (sortedDates.length > 0) {
+      const lines = sortedDates.map(d=>`  ${d}: ${dateSchedule[d].start}–${dateSchedule[d].end}`).join('\n')
+      await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'send_message',
+          content:`📅 Schedule updated — ${sortedDates.length} day(s) planned:\n${lines}\nNotes: ${scheduleNotes||'none'}. Please update the project timeline.`})})
+    }
     setSaving(false)
   }
 
@@ -262,6 +256,12 @@ export default function SubPortal() {
       body:JSON.stringify({type:estScope,task_id:estScope==='task'?estTaskId:null,amount:estAmt,notes:estNotes})})
     const er = await fetch(`${base}/estimate`)
     if (er.ok) { const ed=await er.json(); setEstimates(ed.estimates||[]) }
+    // notify KORVIA for timeline/budget update
+    const eTask = tasks.find((t:any)=>t.id===estTaskId)
+    const scopeLabel = estScope==='task' ? `task "${eTask?.name||estTaskId}"` : 'the whole project'
+    await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'send_message',
+        content:`💰 New estimate submitted: $${Number(estAmt).toLocaleString()} for ${scopeLabel}. Notes: ${estNotes||'none'}. Please update the project budget and timeline.`})})
     setEstAmt(''); setEstNotes(''); setEstTaskId('')
     setSubmittingEst(false)
   }
@@ -290,6 +290,21 @@ export default function SubPortal() {
   const labelCls   = "block text-xs text-white/50 mb-1 font-medium uppercase tracking-wide"
   const cardCls    = "bg-white/5 rounded-2xl p-4 border border-white/10"
   const btnPrimary = "w-full py-2.5 rounded-xl bg-blue-500 hover:bg-blue-400 text-white text-sm font-semibold transition disabled:opacity-40"
+
+  /* ── calendar helpers (computed after early returns, project is loaded) ── */
+  const projStart    = project?.start_date ? parseISO(project.start_date) : new Date()
+  const calBaseY     = projStart.getFullYear()
+  const calBaseM     = projStart.getMonth()
+  const calView      = new Date(calBaseY, calBaseM + calOffset, 1)
+  const calYear      = calView.getFullYear()
+  const calMonth     = calView.getMonth()
+  const calFirstDOW  = calView.getDay()           // 0=Sun
+  const calDaysInMo  = new Date(calYear, calMonth+1, 0).getDate()
+  const projStartStr = project?.start_date ? format(projStart,'yyyy-MM-dd') : ''
+  const CAL_HEADS    = ['Su','Mo','Tu','We','Th','Fr','Sa']
+  function calDateStr(d:number) {
+    return `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+  }
 
   /* overall status pill derived from tasks */
   const allSt = Object.values(taskStatus)
@@ -451,81 +466,168 @@ export default function SubPortal() {
         {/* ── SCHEDULE ─────────────────────────────────────────────────── */}
         {activeTab==='schedule' && (
           <div className="space-y-4">
-            {/* weekly calendar grid */}
+
+            {/* month calendar */}
             <div className={cardCls}>
-              <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-1">Weekly Calendar</p>
-              <p className="text-white/30 text-[10px] mb-4">Toggle each day and set your exact hours on site</p>
+              <p className="text-white/30 text-[10px] mb-3">
+                Tap a date to mark your working days starting from the project start.
+                KORVIA will update the timeline automatically when you save.
+              </p>
 
-              <div className="space-y-1">
-                {/* header row */}
-                <div className="grid grid-cols-[2.5rem_1fr_1fr] gap-2 mb-2 px-1">
-                  <div/>
-                  <p className="text-white/30 text-[10px] uppercase tracking-wide text-center">Arrival</p>
-                  <p className="text-white/30 text-[10px] uppercase tracking-wide text-center">Departure</p>
+              {/* month navigation */}
+              <div className="flex items-center justify-between mb-3">
+                <button onClick={()=>setCalOffset(p=>Math.max(0,p-1))}
+                  disabled={calOffset===0}
+                  className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 text-white/60 disabled:opacity-25 hover:bg-white/10 transition text-lg font-light flex items-center justify-center">
+                  ‹
+                </button>
+                <div className="text-center">
+                  <p className="text-white font-semibold text-sm">{format(calView,'MMMM yyyy')}</p>
+                  {calOffset===0 && projStartStr && (
+                    <p className="text-blue-300 text-[10px]">Project starts {format(projStart,'MMM d')}</p>
+                  )}
                 </div>
+                <button onClick={()=>setCalOffset(p=>p+1)}
+                  className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 transition text-lg font-light flex items-center justify-center">
+                  ›
+                </button>
+              </div>
 
-                {WORK_DAYS.map(day=>{
-                  const d = weekSchedule[day]||{active:false,start:'07:00',end:'17:00'}
+              {/* day-of-week headers */}
+              <div className="grid grid-cols-7 mb-1">
+                {CAL_HEADS.map(h=>(
+                  <div key={h} className="text-center text-[10px] text-white/25 font-medium py-1">{h}</div>
+                ))}
+              </div>
+
+              {/* day cells */}
+              <div className="grid grid-cols-7 gap-y-1">
+                {Array.from({length:calFirstDOW}).map((_,i)=><div key={`e${i}`}/>)}
+                {Array.from({length:calDaysInMo}).map((_,i)=>{
+                  const day      = i+1
+                  const ds       = calDateStr(day)
+                  const isPast   = projStartStr && ds < projStartStr
+                  const isOn     = !!dateSchedule[ds]
+                  const isSel    = selDate===ds
+                  const isToday  = ds===format(new Date(),'yyyy-MM-dd')
                   return (
-                    <div key={day}
-                      className={`grid grid-cols-[2.5rem_1fr_1fr] gap-2 items-center rounded-xl px-2 py-2 transition
-                        ${d.active?'bg-blue-500/10 border border-blue-400/20':'bg-white/[0.03] border border-white/5'}`}>
-                      {/* day toggle */}
-                      <button
-                        onClick={()=>setWeekSchedule(p=>({...p,[day]:{...d,active:!d.active}}))}
-                        className={`flex flex-col items-center gap-0.5 rounded-lg py-1 transition
-                          ${d.active?'text-blue-300':'text-white/30'}`}>
-                        <span className="text-[10px] font-bold">{day}</span>
-                        <span className="text-base leading-none">{d.active?'✓':'○'}</span>
-                      </button>
-                      {/* arrival */}
-                      <input type="time" value={d.start}
-                        disabled={!d.active}
-                        onChange={e=>setWeekSchedule(p=>({...p,[day]:{...d,start:e.target.value}}))}
-                        className={`rounded-lg border text-center text-sm font-semibold py-2 px-1 w-full transition
-                          focus:outline-none focus:ring-2 focus:ring-blue-400/60
-                          ${d.active
-                            ? 'bg-white/10 border-white/20 text-white'
-                            : 'bg-white/5 border-white/10 text-white/20 cursor-not-allowed'}`}/>
-                      {/* departure */}
-                      <input type="time" value={d.end}
-                        disabled={!d.active}
-                        onChange={e=>setWeekSchedule(p=>({...p,[day]:{...d,end:e.target.value}}))}
-                        className={`rounded-lg border text-center text-sm font-semibold py-2 px-1 w-full transition
-                          focus:outline-none focus:ring-2 focus:ring-blue-400/60
-                          ${d.active
-                            ? 'bg-white/10 border-white/20 text-white'
-                            : 'bg-white/5 border-white/10 text-white/20 cursor-not-allowed'}`}/>
-                    </div>
+                    <button key={day}
+                      disabled={!!isPast}
+                      onClick={()=>{
+                        if (isPast) return
+                        if (isSel) { setSelDate(null); return }
+                        setSelDate(ds)
+                        if (!isOn) setDateSchedule(p=>({...p,[ds]:{start:'07:00',end:'17:00'}}))
+                      }}
+                      className={`relative mx-auto flex items-center justify-center w-9 h-9 rounded-xl text-xs font-medium transition
+                        ${isPast
+                          ? 'text-white/12 cursor-not-allowed'
+                          : isOn
+                          ? isSel
+                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30 ring-2 ring-blue-300 ring-offset-1 ring-offset-[#0f1e35]'
+                            : 'bg-blue-500/25 border border-blue-400/50 text-blue-200'
+                          : isSel
+                          ? 'bg-white/15 text-white border border-white/30'
+                          : isToday
+                          ? 'border border-blue-400/40 text-blue-300 hover:bg-white/10'
+                          : 'text-white/70 hover:bg-white/10'}`}>
+                      {day}
+                      {isOn && !isSel && (
+                        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-400"/>
+                      )}
+                    </button>
                   )
                 })}
               </div>
-
-              {/* quick summary */}
-              {WORK_DAYS.filter(d=>weekSchedule[d]?.active).length>0 && (
-                <div className="mt-3 bg-blue-500/10 border border-blue-400/20 rounded-xl p-3">
-                  <p className="text-blue-300 text-xs font-medium mb-1">📅 Your active schedule</p>
-                  {WORK_DAYS.filter(d=>weekSchedule[d]?.active).map(d=>(
-                    <p key={d} className="text-white/70 text-xs">
-                      <span className="font-semibold w-8 inline-block">{d}</span>
-                      {weekSchedule[d].start} – {weekSchedule[d].end}
-                    </p>
-                  ))}
-                </div>
-              )}
             </div>
+
+            {/* selected date time picker */}
+            {selDate && dateSchedule[selDate] && (
+              <div className={cardCls+' space-y-3 border-blue-400/30'}>
+                <div className="flex items-center justify-between">
+                  <p className="text-white font-medium text-sm">
+                    📅 {format(parseISO(selDate),'EEEE, MMM d, yyyy')}
+                  </p>
+                  <button onClick={()=>{
+                    setDateSchedule(p=>{ const n={...p}; delete n[selDate]; return n })
+                    setSelDate(null)
+                  }} className="text-red-400/70 text-xs hover:text-red-300 transition">
+                    Remove day
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>Arrival time</label>
+                    <input type="time" value={dateSchedule[selDate].start}
+                      onChange={e=>setDateSchedule(p=>({...p,[selDate]:{...p[selDate],start:e.target.value}}))}
+                      className={inputCls}/>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Departure time</label>
+                    <input type="time" value={dateSchedule[selDate].end}
+                      onChange={e=>setDateSchedule(p=>({...p,[selDate]:{...p[selDate],end:e.target.value}}))}
+                      className={inputCls}/>
+                  </div>
+                </div>
+                <p className="text-white/30 text-[10px]">
+                  Hours on site: {(()=>{
+                    const [sh,sm]=dateSchedule[selDate].start.split(':').map(Number)
+                    const [eh,em]=dateSchedule[selDate].end.split(':').map(Number)
+                    const hrs=((eh*60+em)-(sh*60+sm))/60
+                    return hrs>0?`${hrs.toFixed(1)}h`:'—'
+                  })()}
+                </p>
+              </div>
+            )}
+
+            {/* scheduled dates summary */}
+            {Object.keys(dateSchedule).length>0 && (
+              <div className={cardCls}>
+                <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-3">
+                  Planned Working Days ({Object.keys(dateSchedule).length})
+                </p>
+                <div className="space-y-0 max-h-52 overflow-y-auto pr-1">
+                  {Object.keys(dateSchedule).sort().map(d=>{
+                    const [sh,sm]=dateSchedule[d].start.split(':').map(Number)
+                    const [eh,em]=dateSchedule[d].end.split(':').map(Number)
+                    const hrs=((eh*60+em)-(sh*60+sm))/60
+                    return (
+                      <div key={d} onClick={()=>setSelDate(d==='_sel'?null:d)}
+                        className={`flex items-center justify-between py-2 border-t border-white/5 first:border-0 cursor-pointer
+                          ${selDate===d?'text-blue-200':'text-white/80'}`}>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-semibold w-24">{format(parseISO(d),'EEE, MMM d')}</span>
+                          <span className="text-white/40 text-xs">{dateSchedule[d].start}–{dateSchedule[d].end}</span>
+                          <span className="text-white/25 text-[10px]">{hrs>0?`${hrs.toFixed(0)}h`:''}</span>
+                        </div>
+                        <button onClick={e=>{e.stopPropagation();setDateSchedule(p=>{const n={...p};delete n[d];return n});if(selDate===d)setSelDate(null)}}
+                          className="text-white/15 hover:text-red-400 text-xs transition px-1">✕</button>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="mt-2 pt-2 border-t border-white/10 flex justify-between text-[10px] text-white/40">
+                  <span>Total hours: {Object.values(dateSchedule).reduce((acc,d)=>{
+                    const [sh,sm]=d.start.split(':').map(Number)
+                    const [eh,em]=d.end.split(':').map(Number)
+                    return acc+((eh*60+em)-(sh*60+sm))/60
+                  },0).toFixed(0)}h</span>
+                  <span>{Object.keys(dateSchedule).length} days</span>
+                </div>
+              </div>
+            )}
 
             {/* notes */}
             <div className={cardCls}>
-              <label className={labelCls}>Schedule notes</label>
-              <textarea rows={3} value={scheduleNotes}
-                placeholder="e.g. Need site access by 6:30am, lunch 12–1pm, leaving by 3pm Fridays…"
+              <label className={labelCls}>Notes for KORVIA & builder</label>
+              <textarea rows={2} value={scheduleNotes}
+                placeholder="Access requirements, special conditions, break times…"
                 onChange={e=>setScheduleNotes(e.target.value)}
                 className={inputCls}/>
             </div>
 
             <button onClick={saveSchedule} disabled={saving} className={btnPrimary}>
-              {saving?'Saving…':'Save Schedule 📅'}
+              {saving?'Saving & notifying KORVIA…':'Save Schedule & Notify KORVIA 📅'}
             </button>
           </div>
         )}
