@@ -139,7 +139,7 @@ export default function SubPortal() {
       kq[t.id] = { open:false, q:'', a:'', loading:false }
     }
     setTaskStatus(st); setTaskDates(td); setAskKorvia(kq)
-    setAuthStep('gate')
+    setAuthStep('ok')
   }
 
   useEffect(() => {
