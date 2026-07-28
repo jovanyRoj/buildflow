@@ -68,6 +68,7 @@ export default function QuotePage() {
   const [financials,     setFinancials]     = useState<any>(null)
   const [subNegotiate,   setSubNegotiate]   = useState<Record<string, string>>({})
   const [notifySending,  setNotifySending]  = useState<Record<string, boolean>>({})
+  const [agreeSending,   setAgreeSending]   = useState<Record<string, boolean>>({})
 
   // ── UI toggles ────────────────────────────────────────────────────────────
   const [expandedPhase,   setExpandedPhase]   = useState<string | null>(null)
@@ -300,7 +301,7 @@ export default function QuotePage() {
     return kws
   }
 
-  function getPhaseSubData(phaseName: string): { company: string; amount: number; taskName?: string; subProposedAmount?: number|null }[] {
+  function getPhaseSubData(phaseName: string): { company: string; amount: number; taskName?: string; subProposedAmount?: number|null; builderProposedAmount?: number|null; finalAgreedAmount?: number|null; subId?: string|null }[] {
     // ── Helpers ──────────────────────────────────────────────────────────────
     // Strip accents so "topógrafo" ↔ "topográfico" share the same root prefix
     const norm = (s: string) =>
@@ -327,7 +328,7 @@ export default function QuotePage() {
     const phaseKeys = [...new Set(prefixKeys(phaseName))]
     if (!phaseKeys.length) return []
 
-    const results: { company: string; amount: number; taskName?: string; subProposedAmount?: number|null }[] = []
+    const results: { company: string; amount: number; taskName?: string; subProposedAmount?: number|null; builderProposedAmount?: number|null; finalAgreedAmount?: number|null; subId?: string|null }[] = []
     const seen = new Set<string>()
 
     // Primary: match subTasks by task name (phase-specific root overlap)
@@ -335,7 +336,7 @@ export default function QuotePage() {
       if (overlaps(phaseKeys, prefixKeys(t.name ?? ''))) {
         const company = t.sub_company || t.assigned_to || '—'
         const key = norm(company)
-        if (!seen.has(key)) { seen.add(key); results.push({ company, amount: t.subAmt ?? 0, taskName: t.name, subProposedAmount: t.subProposedAmount ?? null }) }
+        if (!seen.has(key)) { seen.add(key); results.push({ company, amount: t.subAmt ?? 0, taskName: t.name, subProposedAmount: t.subProposedAmount ?? null, builderProposedAmount: t.builderProposedAmount ?? null, finalAgreedAmount: t.finalAgreedAmount ?? null, subId: t.id ?? null }) }
       }
     }
 
@@ -345,7 +346,7 @@ export default function QuotePage() {
       if (!seen.has(cl) && (overlaps(phaseKeys, prefixKeys(sub.trade ?? '')) || overlaps(phaseKeys, prefixKeys(sub.company ?? '')))) {
         seen.add(cl)
         const linked = subTasks.find(t => t.subcontractor_phone === sub.phone)
-        results.push({ company: sub.company, amount: linked?.subAmt ?? 0, taskName: linked?.name, subProposedAmount: linked?.subProposedAmount ?? null })
+        results.push({ company: sub.company, amount: linked?.subAmt ?? 0, taskName: linked?.name, subProposedAmount: linked?.subProposedAmount ?? null, builderProposedAmount: linked?.builderProposedAmount ?? null, finalAgreedAmount: linked?.finalAgreedAmount ?? null, subId: linked?.id ?? null })
       }
     }
     return results
@@ -383,7 +384,7 @@ export default function QuotePage() {
             setSubTasks(
               d.tasks
                 .filter((t: any) => !!(t.assigned_to || t.subcontractor_phone))
-                .map((t: any) => ({ ...t, builderAmt: t.builder_estimate?.amount ?? 0, subAmt: t.sub_estimate?.amount ?? 0, subProposedAmount: t.sub_proposed_amount ?? null }))
+                .map((t: any) => ({ ...t, builderAmt: t.builder_estimate?.amount ?? 0, subAmt: t.sub_estimate?.amount ?? 0, subProposedAmount: t.sub_proposed_amount ?? null, builderProposedAmount: t.builder_proposed_amount ?? null, finalAgreedAmount: t.final_agreed_amount ?? null }))
             )
             setRegisteredSubs(d.subs ?? [])
           })
@@ -434,6 +435,26 @@ export default function QuotePage() {
       alert('Error al enviar la notificación')
     }
     setNotifySending(p => ({ ...p, [phaseId]: false }))
+  }
+
+  async function handleMarkAgreed(phaseId: string, s: { company: string; amount: number; subId?: string|null }) {
+    if (!project || !s.subId) return
+    const agreed = parseFloat(subNegotiate[phaseId] ?? String(s.amount))
+    if (!agreed) return
+    setAgreeSending(p => ({ ...p, [phaseId]: true }))
+    try {
+      await quoteAction({
+        action: 'mark_agreed',
+        task_id: null,
+        sub_id: s.subId,
+        agreed_amount: agreed,
+        phase_name: '',
+        sub_company: s.company,
+      })
+      await new Promise(r => setTimeout(r, 800))
+      // Refresh sub data
+    } catch {}
+    setAgreeSending(p => ({ ...p, [phaseId]: false }))
   }
 
   if (!ready) return <Spinner />
@@ -861,44 +882,87 @@ export default function QuotePage() {
                               </div>
                             )
                           })()}
-                          {/* Negotiation */}
-                          <div className="bg-white rounded-xl border border-indigo-100 p-2.5">
-                            <p className="text-[10px] font-bold text-indigo-500 mb-1.5">🤖 KORVIA — Monto negociado con sub</p>
-                            {/* Sub counter-proposal banner */}
-                            {s.subProposedAmount != null && (
-                              <div className="mb-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
+                          {/* ── 4-Value Comparison ─────────────────────────── */}
+                          <div className="space-y-2">
+                            {/* Row: 4 cards */}
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {/* 1. KORVIA Est */}
+                              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-2 text-center">
+                                <p className="text-[8px] font-bold text-indigo-400 uppercase tracking-wide mb-0.5">🤖 KORVIA</p>
+                                <p className="text-xs font-extrabold text-indigo-700">{phaseTotal > 0 ? fmt(phaseTotal) : '—'}</p>
+                              </div>
+                              {/* 2. Sub First Est */}
+                              <div className={`rounded-xl border p-2 text-center ${s.amount > 0 ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
+                                <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">👷 Sub Est.</p>
+                                <p className={`text-xs font-extrabold ${s.amount > 0 ? 'text-green-700' : 'text-gray-300'}`}>{s.amount > 0 ? fmt(s.amount) : '—'}</p>
+                              </div>
+                              {/* 3. Builder Propuesta */}
+                              <div className={`rounded-xl border p-2 text-center ${s.builderProposedAmount != null ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
+                                <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">🏗 Builder</p>
+                                <p className={`text-xs font-extrabold ${s.builderProposedAmount != null ? 'text-orange-700' : 'text-gray-300'}`}>{s.builderProposedAmount != null ? fmt(s.builderProposedAmount) : '—'}</p>
+                              </div>
+                              {/* 4. Acordado Final */}
+                              <div className={`rounded-xl border p-2 text-center ${s.finalAgreedAmount != null ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-100'}`}>
+                                <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">✅ Acordado</p>
+                                <p className={`text-xs font-extrabold ${s.finalAgreedAmount != null ? 'text-emerald-700' : 'text-gray-300'}`}>{s.finalAgreedAmount != null ? fmt(s.finalAgreedAmount) : '—'}</p>
+                              </div>
+                            </div>
+
+                            {/* Sub counter-proposal pill */}
+                            {s.subProposedAmount != null && s.finalAgreedAmount == null && (
+                              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
                                 <div>
-                                  <p className="text-[9px] font-bold text-blue-400 uppercase tracking-wide">💬 Sub propone</p>
+                                  <p className="text-[9px] font-bold text-blue-400 uppercase">💬 Sub contra-propone</p>
                                   <p className="text-sm font-extrabold text-blue-700">{fmt(s.subProposedAmount)}</p>
                                 </div>
-                                <button
-                                  onClick={() => setSubNegotiate(p => ({ ...p, [phase.id]: String(s.subProposedAmount) }))}
+                                <button onClick={() => setSubNegotiate(p => ({ ...p, [phase.id]: String(s.subProposedAmount) }))}
                                   className="text-[10px] px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 transition shrink-0">
                                   Usar propuesta
                                 </button>
                               </div>
                             )}
-                            <div className="flex gap-2">
-                              <div className="relative flex-1">
-                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>
-                                <input
-                                  type="number"
-                                  placeholder="0"
-                                  value={subNegotiate[phase.id] ?? ''}
-                                  onChange={e => setSubNegotiate(p => ({ ...p, [phase.id]: e.target.value }))}
-                                  className="w-full pl-5 pr-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50/30 text-sm font-semibold text-gray-900 focus:outline-none focus:border-indigo-400"
-                                />
+
+                            {/* Negotiation input */}
+                            {s.finalAgreedAmount == null && (
+                              <div className="bg-white rounded-xl border border-indigo-100 p-2.5">
+                                <p className="text-[10px] font-bold text-indigo-500 mb-1.5">🤖 KORVIA — Propuesta del Builder</p>
+                                <div className="flex gap-2">
+                                  <div className="relative flex-1">
+                                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>
+                                    <input type="number" placeholder="0"
+                                      value={subNegotiate[phase.id] ?? ''}
+                                      onChange={e => setSubNegotiate(p => ({ ...p, [phase.id]: e.target.value }))}
+                                      className="w-full pl-5 pr-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50/30 text-sm font-semibold text-gray-900 focus:outline-none focus:border-indigo-400"/>
+                                  </div>
+                                  <button onClick={() => handleNotifySub(phase.id, phase.phase_name, s)}
+                                    disabled={notifySending[phase.id] || !subNegotiate[phase.id]}
+                                    className="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg disabled:opacity-40 flex items-center gap-1 shrink-0">
+                                    {notifySending[phase.id]
+                                      ? <><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"/>…</>
+                                      : '📤 Notificar sub'}
+                                  </button>
+                                </div>
+                                <div className="mt-2">
+                                  <button onClick={() => handleMarkAgreed(phase.id, s)}
+                                    disabled={agreeSending[phase.id] || !subNegotiate[phase.id]}
+                                    className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition disabled:opacity-40 flex items-center justify-center gap-1.5">
+                                    {agreeSending[phase.id]
+                                      ? <><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"/>…</>
+                                      : '✅ Finalizar Acuerdo'}
+                                  </button>
+                                </div>
+                                <p className="text-[9px] text-gray-400 mt-1">Notificar envía la propuesta · Finalizar bloquea el acuerdo</p>
                               </div>
-                              <button
-                                onClick={() => handleNotifySub(phase.id, phase.phase_name, s)}
-                                disabled={notifySending[phase.id] || !subNegotiate[phase.id]}
-                                className="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg disabled:opacity-40 flex items-center gap-1 shrink-0">
-                                {notifySending[phase.id]
-                                  ? <><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"/>…</>
-                                  : '📤 Notificar'}
-                              </button>
-                            </div>
-                            <p className="text-[9px] text-indigo-400 mt-1">KORVIA enviará un SMS al sub con el monto acordado</p>
+                            )}
+
+                            {/* Final agreed locked banner */}
+                            {s.finalAgreedAmount != null && (
+                              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+                                <p className="text-[10px] font-bold text-emerald-500 mb-1">✅ Acuerdo Finalizado</p>
+                                <p className="text-xl font-extrabold text-emerald-700">{fmt(s.finalAgreedAmount)}</p>
+                                <p className="text-[9px] text-emerald-400 mt-0.5">Este monto está acordado por builder y sub</p>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )) : (

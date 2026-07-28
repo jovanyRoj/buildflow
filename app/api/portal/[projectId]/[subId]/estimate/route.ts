@@ -19,30 +19,33 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     .order('created_at', { ascending: false })
 
   const taskIds = (estimates ?? []).filter((e: any) => e.task_id).map((e: any) => e.task_id)
-  const approvedMap: Record<string, number> = {}
-  const proposedMap: Record<string, number> = {}
-  const proposedAtMap: Record<string, string> = {}
+  const approvedMap:    Record<string, number> = {}
+  const proposedMap:    Record<string, number> = {}
+  const proposedAtMap:  Record<string, string> = {}
+  const finalAgreedMap: Record<string, number> = {}
 
   if (taskIds.length > 0) {
     const { data: budgets } = await supabaseAdmin
       .from('bf_sub_budgets')
-      .select('task_id, approved_amount, sub_proposed_amount, sub_proposed_at')
+      .select('task_id, approved_amount, sub_proposed_amount, sub_proposed_at, final_agreed_amount, final_agreed_at')
       .eq('sub_id', subId)
       .in('task_id', taskIds)
 
     for (const b of budgets ?? []) {
       if (!b.task_id) continue
       if (b.approved_amount != null)     approvedMap[b.task_id]   = b.approved_amount
-      if (b.sub_proposed_amount != null) proposedMap[b.task_id]   = b.sub_proposed_amount
-      if (b.sub_proposed_at)             proposedAtMap[b.task_id] = b.sub_proposed_at
+      if (b.sub_proposed_amount != null)  proposedMap[b.task_id]    = b.sub_proposed_amount
+      if (b.sub_proposed_at)              proposedAtMap[b.task_id]  = b.sub_proposed_at
+      if (b.final_agreed_amount != null)  finalAgreedMap[b.task_id] = b.final_agreed_amount
     }
   }
 
   const enriched = (estimates ?? []).map((e: any) => ({
     ...e,
     approved_amount:     e.task_id ? (approvedMap[e.task_id]   ?? null) : null,
-    sub_proposed_amount: e.task_id ? (proposedMap[e.task_id]   ?? null) : null,
-    sub_proposed_at:     e.task_id ? (proposedAtMap[e.task_id] ?? null) : null,
+    sub_proposed_amount: e.task_id ? (proposedMap[e.task_id]    ?? null) : null,
+    sub_proposed_at:     e.task_id ? (proposedAtMap[e.task_id]  ?? null) : null,
+    final_agreed_amount: e.task_id ? (finalAgreedMap[e.task_id] ?? null) : null,
   }))
 
   return NextResponse.json({ estimates: enriched })

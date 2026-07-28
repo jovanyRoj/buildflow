@@ -488,6 +488,29 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   }
 
 
+  // ── Mark as final agreed ─────────────────────────────────────────────────
+  if (action === 'mark_agreed') {
+    const { task_id, sub_id, agreed_amount, phase_name, sub_company } = rest
+    const now = new Date().toISOString()
+    if (!task_id || !sub_id || agreed_amount == null) {
+      return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+    }
+    await supabaseAdmin.from('bf_sub_budgets').upsert(
+      { project_id: projectId, task_id, sub_id,
+        final_agreed_amount: agreed_amount, final_agreed_at: now,
+        approved_amount: agreed_amount, payment_status: 'pending' },
+      { onConflict: 'task_id,sub_id' }
+    )
+    try {
+      await supabaseAdmin.from('bf_notifications').insert({
+        project_id: projectId, type: 'budget_agreed',
+        title: `✅ Acuerdo final — ${phase_name ?? 'tarea'}`,
+        body: `Monto acordado con ${sub_company ?? 'el sub'}: $${Math.round(agreed_amount).toLocaleString()}`,
+      })
+    } catch {}
+    return NextResponse.json({ ok: true })
+  }
+
   // ── Reorder phases ────────────────────────────────────────────────────────
   if (action === 'reorder_phases') {
     const items = rest.phases as { id: string; phase_order: number }[]

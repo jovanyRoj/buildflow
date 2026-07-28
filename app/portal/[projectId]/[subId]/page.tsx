@@ -29,7 +29,7 @@ type UrgencyValue = 'low'|'medium'|'high'|'emergency'
 
 /* ─── interfaces ─────────────────────────────────────────────────────────── */
 interface PortalMessage { id:string; sender:'sub'|'korvia'; content:string; created_at:string }
-interface Estimate { id?:string; type:'project'|'task'; task_id?:string; amount:string; notes:string; approved_amount?:number|null; sub_proposed_amount?:number|null; sub_proposed_at?:string|null }
+interface Estimate { id?:string; type:'project'|'task'; task_id?:string; amount:string; notes:string; approved_amount?:number|null; sub_proposed_amount?:number|null; sub_proposed_at?:string|null; final_agreed_amount?:number|null; final_agreed_at?:string|null }
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 function mapsUrl(addr:string) {
@@ -998,12 +998,13 @@ export default function SubPortal() {
                 <div className="space-y-3">
                   {estimates.map((e,i)=>{
                     const t          = allTasks.find((x:any)=>x.id===e.task_id)
+                    const hasFinal   = e.final_agreed_amount != null
                     const hasAgreed  = e.approved_amount != null
                     const hasCounter = e.sub_proposed_amount != null
                     const subAmt     = parseFloat(e.amount) || 0
-                    const agreedAmt  = e.approved_amount ?? 0
                     const counterAmt = e.sub_proposed_amount ?? 0
-                    const diff       = hasAgreed ? agreedAmt - subAmt : null
+                    const builderAmt = e.approved_amount ?? 0
+                    const finalAmt   = e.final_agreed_amount ?? 0
                     const eId        = e.id ?? e.task_id ?? String(i)
                     const isSending  = submittingCounter[eId]
                     const wasSent    = counterSent[eId]
@@ -1013,49 +1014,50 @@ export default function SubPortal() {
                         {/* Task label + status badge */}
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-white/70 text-xs font-semibold truncate">{t ? t.name : 'Proyecto completo'}</p>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${hasAgreed ? 'bg-emerald-500/25 text-emerald-300' : 'bg-yellow-500/20 text-yellow-300'}`}>
-                            {hasAgreed ? '✅ Acordado' : '⏳ Pendiente'}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${hasFinal ? 'bg-emerald-500/25 text-emerald-300' : 'bg-yellow-500/20 text-yellow-300'}`}>
+                            {hasFinal ? '✅ Finalizado' : '⏳ Pendiente'}
                           </span>
                         </div>
 
-                        {/* Three-way comparison: Tu cotización · Tu propuesta · Builder */}
-                        <div className={`grid gap-2 ${hasCounter || hasAgreed ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                          <div className="bg-white/5 rounded-xl p-2 text-center">
-                            <p className="text-[9px] font-bold text-white/40 uppercase tracking-wide mb-0.5">Tu Cotización</p>
-                            <p className="text-sm font-extrabold text-white">{fmtMoney(subAmt)}</p>
+                        {/* 4-value comparison grid */}
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {/* 1. Tu Cotización */}
+                          <div className="bg-white/8 rounded-xl p-2 text-center">
+                            <p className="text-[8px] font-bold text-white/35 uppercase tracking-wide mb-0.5">Tu Cotiz.</p>
+                            <p className="text-xs font-extrabold text-white">{fmtMoney(subAmt)}</p>
                           </div>
-                          {(hasCounter || hasAgreed) && (
-                            <div className={`rounded-xl p-2 text-center border ${hasCounter ? 'bg-blue-500/15 border-blue-400/25' : 'bg-white/5 border-white/10'}`}>
-                              <p className="text-[9px] font-bold text-white/40 uppercase tracking-wide mb-0.5">Tu Propuesta</p>
-                              <p className={`text-sm font-extrabold ${hasCounter ? 'text-blue-300' : 'text-white/20'}`}>
-                                {hasCounter ? fmtMoney(counterAmt) : '—'}
-                              </p>
-                            </div>
-                          )}
-                          <div className={`rounded-xl p-2 text-center border ${hasAgreed ? 'bg-emerald-500/15 border-emerald-400/25' : 'bg-white/5 border-white/10'}`}>
-                            <p className="text-[9px] font-bold text-white/40 uppercase tracking-wide mb-0.5">Builder Acordó</p>
-                            <p className={`text-sm font-extrabold ${hasAgreed ? 'text-emerald-300' : 'text-white/20'}`}>
-                              {hasAgreed ? fmtMoney(agreedAmt) : '—'}
+                          {/* 2. Tu Propuesta */}
+                          <div className={`rounded-xl border p-2 text-center ${hasCounter ? 'bg-blue-500/15 border-blue-400/25' : 'bg-white/5 border-white/10'}`}>
+                            <p className="text-[8px] font-bold text-white/35 uppercase tracking-wide mb-0.5">Tu Prop.</p>
+                            <p className={`text-xs font-extrabold ${hasCounter ? 'text-blue-300' : 'text-white/20'}`}>
+                              {hasCounter ? fmtMoney(counterAmt) : '—'}
+                            </p>
+                          </div>
+                          {/* 3. Builder Propone */}
+                          <div className={`rounded-xl border p-2 text-center ${hasAgreed ? 'bg-orange-500/15 border-orange-400/25' : 'bg-white/5 border-white/10'}`}>
+                            <p className="text-[8px] font-bold text-white/35 uppercase tracking-wide mb-0.5">Builder</p>
+                            <p className={`text-xs font-extrabold ${hasAgreed ? 'text-orange-300' : 'text-white/20'}`}>
+                              {hasAgreed ? fmtMoney(builderAmt) : '—'}
+                            </p>
+                          </div>
+                          {/* 4. Acordado Final */}
+                          <div className={`rounded-xl border p-2 text-center ${hasFinal ? 'bg-emerald-500/15 border-emerald-400/25' : 'bg-white/5 border-white/10'}`}>
+                            <p className="text-[8px] font-bold text-white/35 uppercase tracking-wide mb-0.5">Acordado</p>
+                            <p className={`text-xs font-extrabold ${hasFinal ? 'text-emerald-300' : 'text-white/20'}`}>
+                              {hasFinal ? fmtMoney(finalAmt) : '—'}
                             </p>
                           </div>
                         </div>
 
-                        {/* Difference banner */}
-                        {hasAgreed && diff !== null && diff !== 0 && (
-                          <div className={`text-center py-1.5 rounded-xl text-[10px] font-bold ${diff > 0 ? 'bg-blue-500/10 text-blue-300' : 'bg-orange-500/10 text-orange-300'}`}>
-                            {diff > 0
-                              ? `⬆ Builder ajustó +${fmtMoney(diff)} sobre tu cotización`
-                              : `⬇ Builder negoció ${fmtMoney(Math.abs(diff))} por debajo`}
-                          </div>
-                        )}
-                        {hasAgreed && diff === 0 && (
-                          <div className="text-center py-1.5 rounded-xl text-[10px] font-bold bg-emerald-500/10 text-emerald-300">
-                            ✅ Monto aceptado exactamente como cotizaste
+                        {/* Final agreed locked banner */}
+                        {hasFinal && (
+                          <div className="text-center py-2 rounded-xl text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-400/20">
+                            ✅ Acuerdo final: {fmtMoney(finalAmt)} — bloqueado por builder y sub
                           </div>
                         )}
 
                         {/* Counter-proposal section — only for task estimates, not yet agreed */}
-                        {e.task_id && !hasAgreed && (
+                        {e.task_id && !hasFinal && (
                           <div className="bg-blue-500/8 border border-blue-400/20 rounded-xl p-3 space-y-2">
                             <p className="text-[10px] font-bold text-blue-300 uppercase tracking-wide">
                               💬 {hasCounter ? 'Tu propuesta enviada' : 'Proponer monto alternativo'}

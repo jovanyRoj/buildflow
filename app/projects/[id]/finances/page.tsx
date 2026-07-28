@@ -41,14 +41,15 @@ interface Financials {
 }
 interface Computed {
   interestAccrued: number; dailyInterestCost: number
-  totalSubQuoted: number; totalSubApproved: number; totalSubProposed: number; totalMaterials: number
+  totalSubQuoted: number; totalSubApproved: number; totalSubProposed: number; totalFinalAgreed: number; totalMaterials: number
   projectedMargin: number
   sqftConstructionCost: number|null; sqftSalePrice: number|null
   sqftMargin: number|null; realMargin: number|null; realMarginPct: number|null
 }
 interface SubBudget {
   task_id: string; sub_id: string; quoted_amount?: number
-  approved_amount?: number; sub_proposed_amount?: number; payment_status: string
+  approved_amount?: number; sub_proposed_amount?: number
+  final_agreed_amount?: number; payment_status: string
 }
 
 // Returns updated form fields when sqft inputs change (auto-populates budget & sale)
@@ -317,21 +318,39 @@ export default function FinancesPage() {
                           </div>
                           <div className="text-right">
                             <p className={`text-sm font-bold ${isPaid ? 'text-green-600' : 'text-gray-800'}`}>{fmt(sb.quoted_amount)}</p>
-                            {sb.approved_amount && <p className="text-xs text-emerald-600 font-semibold">✅ Acordado: {fmt(sb.approved_amount)}</p>}
+                            {sb.final_agreed_amount != null
+                              ? <p className="text-xs text-emerald-600 font-bold">✅ Final: {fmt(sb.final_agreed_amount)}</p>
+                              : sb.approved_amount
+                                ? <p className="text-xs text-orange-500 font-semibold">🏗 Builder: {fmt(sb.approved_amount)}</p>
+                                : null}
                           </div>
                         </div>
-                        {/* Sub counter-proposal + KORVIA insight */}
-                        {sb.sub_proposed_amount != null && (
-                          <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1.5">
-                            <div>
-                              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-wide">💬 Sub propone</p>
-                              <p className="text-xs font-bold text-blue-700">{fmt(sb.sub_proposed_amount)}</p>
-                            </div>
-                            {!sb.approved_amount && sb.quoted_amount && sb.sub_proposed_amount && (() => {
+                        {/* 4-value negotiation summary */}
+                        {(sb.sub_proposed_amount != null || sb.approved_amount != null || sb.final_agreed_amount != null) && (
+                          <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+                            {sb.sub_proposed_amount != null && (
+                              <div className="bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 text-center">
+                                <p className="text-[8px] font-bold text-blue-400 uppercase">💬 Sub</p>
+                                <p className="text-xs font-bold text-blue-700">{fmt(sb.sub_proposed_amount)}</p>
+                              </div>
+                            )}
+                            {sb.approved_amount != null && sb.final_agreed_amount == null && (
+                              <div className="bg-orange-50 border border-orange-100 rounded-lg px-2 py-1.5 text-center">
+                                <p className="text-[8px] font-bold text-orange-400 uppercase">🏗 Builder</p>
+                                <p className="text-xs font-bold text-orange-700">{fmt(sb.approved_amount)}</p>
+                              </div>
+                            )}
+                            {sb.final_agreed_amount != null && (
+                              <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5 text-center col-span-2">
+                                <p className="text-[8px] font-bold text-emerald-500 uppercase">✅ Acordado Final</p>
+                                <p className="text-sm font-extrabold text-emerald-700">{fmt(sb.final_agreed_amount)}</p>
+                              </div>
+                            )}
+                            {sb.final_agreed_amount == null && sb.quoted_amount && sb.sub_proposed_amount && !sb.approved_amount && (() => {
                               const mid = Math.round((sb.quoted_amount + sb.sub_proposed_amount) / 2)
                               return (
-                                <div className="text-right">
-                                  <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-wide">🤖 KORVIA sugiere</p>
+                                <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1.5 text-center">
+                                  <p className="text-[8px] font-bold text-indigo-400 uppercase">🤖 KORVIA</p>
                                   <p className="text-xs font-bold text-indigo-700">{fmt(mid)}</p>
                                 </div>
                               )
