@@ -132,8 +132,11 @@ export default function QuotePage() {
               .filter((t: any) => !!(t.assigned_to || t.subcontractor_phone))
               .map((t: any) => ({
                 ...t,
-                builderAmt: t.builder_estimate?.amount ?? 0,
-                subAmt:     t.sub_estimate?.amount     ?? 0,
+                builderAmt:           t.builder_estimate?.amount     ?? 0,
+                subAmt:               t.sub_estimate?.amount         ?? 0,
+                subProposedAmount:    t.sub_proposed_amount          ?? null,
+                builderProposedAmount:t.builder_proposed_amount      ?? null,
+                finalAgreedAmount:    t.final_agreed_amount          ?? null,
               }))
           )
           setRegisteredSubs(d.subs ?? [])
@@ -328,7 +331,7 @@ export default function QuotePage() {
     const phaseKeys = [...new Set(prefixKeys(phaseName))]
     if (!phaseKeys.length) return []
 
-    const results: { company: string; amount: number; taskName?: string; subProposedAmount?: number|null; builderProposedAmount?: number|null; finalAgreedAmount?: number|null; subId?: string|null }[] = []
+    const results: { company: string; amount: number; taskName?: string; subProposedAmount?: number|null; builderProposedAmount?: number|null; finalAgreedAmount?: number|null; taskId?: string|null; subId?: string|null }[] = []
     const seen = new Set<string>()
 
     // Primary: match subTasks by task name (phase-specific root overlap)
@@ -336,7 +339,11 @@ export default function QuotePage() {
       if (overlaps(phaseKeys, prefixKeys(t.name ?? ''))) {
         const company = t.sub_company || t.assigned_to || '—'
         const key = norm(company)
-        if (!seen.has(key)) { seen.add(key); results.push({ company, amount: t.subAmt ?? 0, taskName: t.name, subProposedAmount: t.subProposedAmount ?? null, builderProposedAmount: t.builderProposedAmount ?? null, finalAgreedAmount: t.finalAgreedAmount ?? null, subId: t.id ?? null }) }
+        if (!seen.has(key)) {
+          seen.add(key)
+          const regSub = registeredSubs.find((r: any) => r.phone === t.subcontractor_phone || (r.company ?? '').toLowerCase() === key)
+          results.push({ company, amount: t.subAmt ?? 0, taskName: t.name, subProposedAmount: t.subProposedAmount ?? null, builderProposedAmount: t.builderProposedAmount ?? null, finalAgreedAmount: t.finalAgreedAmount ?? null, taskId: t.id ?? null, subId: regSub?.id ?? null })
+        }
       }
     }
 
@@ -346,7 +353,7 @@ export default function QuotePage() {
       if (!seen.has(cl) && (overlaps(phaseKeys, prefixKeys(sub.trade ?? '')) || overlaps(phaseKeys, prefixKeys(sub.company ?? '')))) {
         seen.add(cl)
         const linked = subTasks.find(t => t.subcontractor_phone === sub.phone)
-        results.push({ company: sub.company, amount: linked?.subAmt ?? 0, taskName: linked?.name, subProposedAmount: linked?.subProposedAmount ?? null, builderProposedAmount: linked?.builderProposedAmount ?? null, finalAgreedAmount: linked?.finalAgreedAmount ?? null, subId: linked?.id ?? null })
+        results.push({ company: sub.company, amount: linked?.subAmt ?? 0, taskName: linked?.name, subProposedAmount: linked?.subProposedAmount ?? null, builderProposedAmount: linked?.builderProposedAmount ?? null, finalAgreedAmount: linked?.finalAgreedAmount ?? null, taskId: linked?.id ?? null, subId: sub?.id ?? null })
       }
     }
     return results
@@ -431,28 +438,62 @@ export default function QuotePage() {
       })
       setSubNegotiate(p => { const n = { ...p }; delete n[phaseId]; return n })
       alert(`✅ KORVIA notificó a ${subInfo.company} — monto acordado: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(agreed)}`)
+      // Refresh sub data
+      const d = await fetch(`/api/builder/project-context/${project!.id}`).then(r => r.ok ? r.json() : null)
+      if (d?.tasks) {
+        setSubTasks(
+          d.tasks
+            .filter((t: any) => !!(t.assigned_to || t.subcontractor_phone))
+            .map((t: any) => ({
+              ...t,
+              builderAmt:            t.builder_estimate?.amount    ?? 0,
+              subAmt:                t.sub_estimate?.amount        ?? 0,
+              subProposedAmount:     t.sub_proposed_amount         ?? null,
+              builderProposedAmount: t.builder_proposed_amount     ?? null,
+              finalAgreedAmount:     t.final_agreed_amount         ?? null,
+            }))
+        )
+        setRegisteredSubs(d.subs ?? [])
+      }
     } catch {
       alert('Error al enviar la notificación')
     }
     setNotifySending(p => ({ ...p, [phaseId]: false }))
   }
 
-  async function handleMarkAgreed(phaseId: string, s: { company: string; amount: number; subId?: string|null }) {
-    if (!project || !s.subId) return
+  async function handleMarkAgreed(phaseId: string, s: { company: string; amount: number; taskId?: string|null; subId?: string|null }) {
+    if (!project) return
     const agreed = parseFloat(subNegotiate[phaseId] ?? String(s.amount))
     if (!agreed) return
     setAgreeSending(p => ({ ...p, [phaseId]: true }))
     try {
       await quoteAction({
         action: 'mark_agreed',
-        task_id: null,
-        sub_id: s.subId,
+        task_id: s.taskId ?? null,
+        sub_id: s.subId ?? null,
         agreed_amount: agreed,
         phase_name: '',
         sub_company: s.company,
       })
-      await new Promise(r => setTimeout(r, 800))
-      // Refresh sub data
+      await new Promise(r => setTimeout(r, 500))
+      // Refresh sub data from project-context
+      const d = await fetch(`/api/builder/project-context/${project.id}`).then(r => r.ok ? r.json() : null)
+      if (d?.tasks) {
+        setSubTasks(
+          d.tasks
+            .filter((t: any) => !!(t.assigned_to || t.subcontractor_phone))
+            .map((t: any) => ({
+              ...t,
+              builderAmt:            t.builder_estimate?.amount    ?? 0,
+              subAmt:                t.sub_estimate?.amount        ?? 0,
+              subProposedAmount:     t.sub_proposed_amount         ?? null,
+              builderProposedAmount: t.builder_proposed_amount     ?? null,
+              finalAgreedAmount:     t.final_agreed_amount         ?? null,
+            }))
+        )
+        setRegisteredSubs(d.subs ?? [])
+      }
+      setSubNegotiate(p => { const n = { ...p }; delete n[phaseId]; return n })
     } catch {}
     setAgreeSending(p => ({ ...p, [phaseId]: false }))
   }
