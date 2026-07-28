@@ -414,12 +414,21 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const fmt$ = (n: number) =>
       new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
-    // Persist approved_amount
+    // Persist approved_amount — use select-then-update/insert to avoid column-missing silent failures
     if (task_id && sub_id) {
-      await supabaseAdmin.from('bf_sub_budgets').upsert(
-        { project_id: projectId, task_id, sub_id, approved_amount: agreed_amount, payment_status: 'pending' },
-        { onConflict: 'task_id,sub_id' }
-      )
+      try {
+        const { data: sbRow } = await supabaseAdmin
+          .from('bf_sub_budgets').select('id').eq('project_id', projectId)
+          .eq('task_id', task_id).eq('sub_id', sub_id).maybeSingle()
+        if (sbRow?.id) {
+          await supabaseAdmin.from('bf_sub_budgets')
+            .update({ approved_amount: agreed_amount })
+            .eq('id', sbRow.id)
+        } else {
+          await supabaseAdmin.from('bf_sub_budgets')
+            .insert({ project_id: projectId, task_id, sub_id, approved_amount: agreed_amount })
+        }
+      } catch (e) { console.error('notify_sub_agreed upsert error:', e) }
     }
 
     // Send KORVIA SMS + persist message to portal + create notification
@@ -450,14 +459,21 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       } catch {}
     }
     if (resolvedSubId) {
-      // Also persist approved_amount now that we have the real sub_id
+      // Also persist approved_amount with resolved sub_id
       if (task_id && !sub_id) {
         try {
-          await supabaseAdmin.from('bf_sub_budgets').upsert(
-            { project_id: projectId, task_id, sub_id: resolvedSubId, approved_amount: agreed_amount, payment_status: 'pending' },
-            { onConflict: 'task_id,sub_id' }
-          )
-        } catch {}
+          const { data: sbRow2 } = await supabaseAdmin
+            .from('bf_sub_budgets').select('id').eq('project_id', projectId)
+            .eq('task_id', task_id).eq('sub_id', resolvedSubId).maybeSingle()
+          if (sbRow2?.id) {
+            await supabaseAdmin.from('bf_sub_budgets')
+              .update({ approved_amount: agreed_amount })
+              .eq('id', sbRow2.id)
+          } else {
+            await supabaseAdmin.from('bf_sub_budgets')
+              .insert({ project_id: projectId, task_id, sub_id: resolvedSubId, approved_amount: agreed_amount })
+          }
+        } catch (e) { console.error('notify_sub_agreed fallback upsert:', e) }
       }
       try {
         await supabaseAdmin.from('bf_portal_messages').insert({
@@ -495,12 +511,19 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     if (!task_id || !sub_id || agreed_amount == null) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
     }
-    await supabaseAdmin.from('bf_sub_budgets').upsert(
-      { project_id: projectId, task_id, sub_id,
-        final_agreed_amount: agreed_amount, final_agreed_at: now,
-        approved_amount: agreed_amount, payment_status: 'pending' },
-      { onConflict: 'task_id,sub_id' }
-    )
+    // Select-then-update/insert to avoid silent failures on missing columns
+    const { data: agRow } = await supabaseAdmin
+      .from('bf_sub_budgets').select('id').eq('project_id', projectId)
+      .eq('task_id', task_id).eq('sub_id', sub_id).maybeSingle()
+    if (agRow?.id) {
+      await supabaseAdmin.from('bf_sub_budgets')
+        .update({ final_agreed_amount: agreed_amount, final_agreed_at: now, approved_amount: agreed_amount })
+        .eq('id', agRow.id)
+    } else {
+      await supabaseAdmin.from('bf_sub_budgets')
+        .insert({ project_id: projectId, task_id, sub_id,
+          final_agreed_amount: agreed_amount, final_agreed_at: now, approved_amount: agreed_amount })
+    }
     try {
       await supabaseAdmin.from('bf_notifications').insert({
         project_id: projectId, type: 'budget_agreed',
