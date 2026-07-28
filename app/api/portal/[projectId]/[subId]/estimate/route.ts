@@ -39,14 +39,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Upsert: one estimate per (project, sub, type, task_id)
-  const matchCols: Record<string, unknown> = {
-    project_id: projectId,
-    sub_phone: sub.phone,
-    type,
-  }
-  if (type === 'task' && task_id) matchCols.task_id = task_id
-
-  // Check for existing
   let query = supabaseAdmin
     .from('bf_portal_estimates')
     .select('id')
@@ -62,7 +54,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (existing?.id) {
     const { data } = await supabaseAdmin
       .from('bf_portal_estimates')
-      .update({ amount, notes: notes ?? null, updated_at: new Date().toISOString() })
+      .update({ amount, notes: notes ?? null })
       .eq('id', existing.id)
       .select().single()
     result = data
@@ -79,6 +71,49 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       })
       .select().single()
     result = data
+  }
+
+  // ── Side-effects after saving ─────────────────────────────────────────────
+  try {
+    // 1. Get subcontractor company name for the notification
+    const { data: subRecord } = await supabaseAdmin
+      .from('bf_subcontractors')
+      .select('company, name')
+      .eq('id', subId)
+      .maybeSingle()
+    const company = subRecord?.company || subRecord?.name || sub.phone
+
+    // 2. Insert bf_notifications so Sync Board activity feed sees the new estimate
+    await supabaseAdmin.from('bf_notifications').insert({
+      project_id: projectId,
+      type: 'subcontractor',
+      title: `💰 New estimate from ${company}: $${Math.round(amount).toLocaleString()}`,
+      body: notes ? `Notes: ${notes}` : 'Estimate submitted via sub portal',
+      task_id: (type === 'task' && task_id) ? task_id : null,
+      is_read: false,
+    })
+
+    // 3. Upsert bf_sub_budgets so project-context + ask-korvia read the latest immediately
+    if (type === 'task' && task_id) {
+      const { data: sbExisting } = await supabaseAdmin
+        .from('bf_sub_budgets')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('task_id', task_id)
+        .eq('sub_id', subId)
+        .maybeSingle()
+
+      if (sbExisting?.id) {
+        await supabaseAdmin.from('bf_sub_budgets')
+          .update({ quoted_amount: amount })
+          .eq('id', sbExisting.id)
+      } else {
+        await supabaseAdmin.from('bf_sub_budgets')
+          .insert({ project_id: projectId, task_id, sub_id: subId, quoted_amount: amount })
+      }
+    }
+  } catch (_) {
+    // Side-effects are non-critical — don't fail the response if they error
   }
 
   return NextResponse.json({ ok: true, estimate: result })

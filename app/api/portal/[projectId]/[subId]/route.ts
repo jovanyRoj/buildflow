@@ -28,12 +28,53 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-    const { data: tasks } = await supabaseAdmin
+    const taskSelect = 'id, name, status, start_date, end_date, sub_start_date, sub_end_date, sub_notes, sub_crew_size, sub_materials_status, sub_confirmed, notes, portal_token, delay_days, inspection_required, inspection_status, task_order, sub_arrival_time, sub_work_days, sub_schedule_notes, assigned_to, subcontractor_phone'
+
+    // Fetch ALL project tasks in one query — filter client-side with fuzzy matching
+    // This avoids exact-name-match failures (e.g. "Smith LLC" vs "Smith Construction LLC")
+    const { data: allProjectTasks } = await supabaseAdmin
       .from('bf_tasks')
-      .select('id, name, status, start_date, end_date, sub_start_date, sub_end_date, sub_notes, sub_crew_size, sub_materials_status, sub_confirmed, notes, portal_token, delay_days, inspection_required, inspection_status, task_order, sub_arrival_time, sub_work_days, sub_schedule_notes')
+      .select(taskSelect)
       .eq('project_id', projectId)
-      .or(`assigned_to.eq.${sub.company},subcontractor_phone.eq.${sub.phone}`)
       .order('task_order', { ascending: true })
+
+    // ── Fuzzy match helper ──────────────────────────────────────────────────
+    const STOP = new Set(['llc','inc','co','corp','ltd','the','and','de','el','la',
+      'construction','contracting','company','group','services','solutions'])
+
+    function normWords(s: string): string[] {
+      return (s ?? '').toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 3 && !STOP.has(w))
+    }
+
+    function fuzzyCompanyMatch(assignedTo: string, company: string): boolean {
+      if (!assignedTo || !company) return false
+      const aWords = normWords(assignedTo)
+      const cWords = new Set(normWords(company))
+      // At least one significant word must be shared
+      return aWords.some(w => cWords.has(w))
+    }
+
+    const subPhone   = (sub.phone   ?? '').trim()
+    const subCompany = (sub.company ?? '').trim()
+    const subTrade   = (sub.trade   ?? '').toLowerCase().trim()
+
+    // A task belongs to this sub if:
+    // 1. Phone is an exact match (set by KORVIA or builder)
+    // 2. assigned_to fuzzy-matches the sub's company name
+    // 3. assigned_to contains the sub's trade name (e.g. assigned_to="Surveyor", trade="surveyor")
+    function taskBelongsToSub(t: any): boolean {
+      if (subPhone && t.subcontractor_phone === subPhone) return true
+      if (subCompany && fuzzyCompanyMatch(t.assigned_to, subCompany)) return true
+      if (subTrade && t.assigned_to &&
+          (t.assigned_to.toLowerCase().includes(subTrade) || subTrade.includes(t.assigned_to.toLowerCase().trim())))
+        return true
+      return false
+    }
+
+    const tasks = (allProjectTasks ?? []).filter(taskBelongsToSub)
 
     const { data: files } = await supabaseAdmin
       .from('bf_project_files')
@@ -42,7 +83,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       .order('uploaded_at', { ascending: false })
 
     // Fetch existing sub budgets (quoted costs) for this sub
-    const taskIds = (tasks ?? []).map((t: any) => t.id)
+    const taskIds = tasks.map((t: any) => t.id)
     let subBudgets: Record<string, number> = {}
     if (taskIds.length > 0) {
       const { data: budgets } = await supabaseAdmin
@@ -56,7 +97,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     }
 
     // Merge quoted cost into task objects
-    const enrichedTasks = (tasks ?? []).map((t: any) => ({
+    const enrichedTasks = tasks.map((t: any) => ({
       ...t,
       sub_quoted_cost: subBudgets[t.id] ?? null,
     }))
@@ -74,7 +115,14 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       portalMessages = msgs ?? []
     } catch {}
 
-    return NextResponse.json({ project, sub, tasks: enrichedTasks, files: files ?? [], messages: portalMessages })
+    return NextResponse.json({
+      project,
+      sub,
+      tasks: enrichedTasks,
+      allTasks: (allProjectTasks ?? []).map((t: any) => ({ id: t.id, name: t.name, task_order: t.task_order })),
+      files: files ?? [],
+      messages: portalMessages,
+    })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
@@ -84,12 +132,86 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const { projectId, subId } = await params
   try {
+    const body = await req.json()
     const {
-      taskId,
+      action,
+      taskId: _taskIdCamel,
+      task_id: _taskIdSnake,
       sub_start_date, sub_end_date, sub_notes,
       sub_crew_size, sub_materials_status, sub_confirmed,
       status, inspection_status, sub_quoted_cost,
-    } = await req.json()
+      // schedule-specific fields
+      sub_date_schedule, sub_schedule_notes, sub_work_days, sub_arrival_time,
+    } = body
+    // Accept both camelCase (taskId) and snake_case (task_id)
+    const taskId = _taskIdCamel || _taskIdSnake
+
+    // ── Handle schedule update (no taskId required) ───────────────────────────
+    if (action === 'update_schedule') {
+      const { data: sub } = await supabaseAdmin
+        .from('bf_subcontractors')
+        .select('id, company, phone')
+        .eq('id', subId).eq('project_id', projectId).maybeSingle()
+      if (!sub) return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+
+      await supabaseAdmin.from('bf_subcontractors').update({
+        sub_date_schedule:  sub_date_schedule  ?? null,
+        sub_schedule_notes: sub_schedule_notes ?? null,
+        sub_work_days:      sub_work_days      ?? null,
+        sub_arrival_time:   sub_arrival_time   ?? null,
+      }).eq('id', subId)
+
+      // Sync earliest/latest schedule dates onto all tasks for this sub
+      if (sub_date_schedule && Object.keys(sub_date_schedule).length > 0) {
+        const sorted    = Object.keys(sub_date_schedule).sort()
+        const firstDate = sorted[0]
+        const lastDate  = sorted[sorted.length - 1]
+
+        // Update sub_start_date / sub_end_date on all assigned tasks
+        const orFilter = sub.phone
+          ? `subcontractor_phone.eq.${sub.phone},assigned_to.eq.${sub.company}`
+          : `assigned_to.eq.${sub.company}`
+        await supabaseAdmin.from('bf_tasks')
+          .update({ sub_start_date: firstDate, sub_end_date: lastDate })
+          .eq('project_id', projectId)
+          .or(orFilter)
+
+        await supabaseAdmin.from('bf_notifications').insert({
+          project_id: projectId, type: 'schedule_update',
+          title: `📅 ${sub.company} updated their schedule`,
+          body: `${sorted.length} day(s) planned: ${firstDate} → ${lastDate}. Notes: ${sub_schedule_notes || 'none'}`,
+          is_read: false,
+        })
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Handle date update ────────────────────────────────────────────────────
+    if (action === 'update_dates') {
+      if (!taskId) return NextResponse.json({ error: 'Missing taskId' }, { status: 400 })
+      const { data: sub } = await supabaseAdmin
+        .from('bf_subcontractors')
+        .select('id, company, phone')
+        .eq('id', subId).eq('project_id', projectId).maybeSingle()
+      if (!sub) return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+
+      const { data: task } = await supabaseAdmin
+        .from('bf_tasks').select('id, name')
+        .eq('id', taskId).eq('project_id', projectId).maybeSingle()
+
+      await supabaseAdmin.from('bf_tasks')
+        .update({ sub_start_date: sub_start_date || null, sub_end_date: sub_end_date || null })
+        .eq('id', taskId)
+
+      await supabaseAdmin.from('bf_notifications').insert({
+        project_id: projectId, task_id: taskId, type: 'schedule_update',
+        title: `📅 ${sub.company} set dates for "${task?.name ?? taskId}"`,
+        body: `${sub_start_date || 'TBD'} → ${sub_end_date || 'TBD'}`,
+        is_read: false,
+      })
+      return NextResponse.json({ ok: true })
+    }
+
     if (!taskId) return NextResponse.json({ error: 'Missing taskId' }, { status: 400 })
 
     // Verify sub
@@ -131,7 +253,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       if (!isNaN(amount) && amount > 0) {
         // Upsert into bf_sub_budgets
         await supabaseAdmin.from('bf_sub_budgets').upsert(
-          { task_id: taskId, sub_id: subId, project_id: projectId, quoted_amount: amount, updated_at: new Date().toISOString() },
+          { task_id: taskId, sub_id: subId, project_id: projectId, quoted_amount: amount },
           { onConflict: 'task_id,sub_id' }
         )
 
@@ -265,7 +387,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           }
 
           if (smsBody) {
-            await sendSMS(nextPhone, smsBody)
+            try { await sendSMS(nextPhone, smsBody) } catch {}
             downstreamSMSSent++
             // Mirror SMS to sub's portal messages
             try {
@@ -293,7 +415,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
             await supabaseAdmin.from('bf_tasks').update({ start_date: newStart, end_date: newEnd }).eq('id', dt.id)
             if (dt.subcontractor_phone) {
               const shiftMsg = `📅 Brivox — Schedule update at ${projectName}: "${dt.name}" moved to ${newStart}. Previous task "${task.name}" delayed. Reply HELP for KORVIA.`
-              await sendSMS(dt.subcontractor_phone, shiftMsg)
+              try { await sendSMS(dt.subcontractor_phone, shiftMsg) } catch {}
               downstreamSMSSent++
               // Mirror SMS to sub's portal messages
               try {
@@ -385,7 +507,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           `New dates: ${fmt(newStart)} → ${fmt(newEnd)}`,
           sub_notes?.trim() ? `Note: "${sub_notes.trim()}"` : null,
         ].filter(Boolean).join('\n')
-        await sendSMS(builder.phone, builderSms)
+        try { await sendSMS(builder.phone, builderSms) } catch {}
       }
 
       // ── SMS parallel subs (overlapping date window) ──────────────────────
@@ -411,7 +533,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
             `This overlaps with your task: "${pt.name}".`,
             `Coordinate with your builder if needed. Reply HELP to chat with KORVIA.`,
           ].join('\n')
-          await sendSMS(pt.subcontractor_phone, parallelSms)
+          try { await sendSMS(pt.subcontractor_phone, parallelSms) } catch {}
           downstreamSMSSent++
           // Mirror to portal messages
           try {

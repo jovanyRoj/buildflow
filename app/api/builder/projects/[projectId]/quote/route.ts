@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { logAudit, diffFields, performedBy } from '@/lib/audit'
+import { sendSMS } from '@/lib/sms'
 
 type Ctx = { params: Promise<{ projectId: string }> }
 
@@ -153,8 +155,10 @@ const HOUSE_TEMPLATE = [
   },
 ]
 
-export async function GET(_req: NextRequest, ctx: Ctx) {
+export async function GET(req: NextRequest, ctx: Ctx) {
   const { projectId } = await ctx.params
+  const { searchParams } = new URL(req.url)
+  const includeArchived = searchParams.get('include_archived') === 'true'
 
   const { data: quote, error } = await supabaseAdmin
     .from('bf_project_quote')
@@ -162,16 +166,32 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     .eq('project_id', projectId)
     .maybeSingle()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
   if (!quote) return NextResponse.json({ quote: null, phases: [] })
 
-  const { data: phases } = await supabaseAdmin
+  let phasesQuery = supabaseAdmin
     .from('bf_quote_phases')
     .select('*, bf_quote_items(*)')
     .eq('quote_id', quote.id)
     .order('phase_order')
 
-  return NextResponse.json({ quote, phases: phases ?? [] })
+  if (!includeArchived) {
+    // Use neq(true) instead of eq(false) so NULL rows (pre-migration) are also included
+    phasesQuery = phasesQuery.neq('is_archived', true)
+  }
+
+  const { data: phases } = await phasesQuery
+
+  // Split items into active and archived per phase
+  const processedPhases = (phases ?? []).map((phase: any) => {
+    const allItems = phase.bf_quote_items ?? []
+    return {
+      ...phase,
+      bf_quote_items:  allItems.filter((i: any) => !i.is_archived),
+      archived_items:  allItems.filter((i: any) =>  i.is_archived),
+    }
+  })
+
+  return NextResponse.json({ quote, phases: processedPhases })
 }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
@@ -190,10 +210,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   const { projectId } = await ctx.params
   const body = await req.json()
   const { action, ...rest } = body
+  const by = performedBy('user', 'builder', 'Builder')
 
   // ── Load house template ───────────────────────────────────────────────────
   if (action === 'load_template') {
-    // Get or create quote
     let quote: any
     const { data: existing } = await supabaseAdmin
       .from('bf_project_quote')
@@ -213,56 +233,47 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       quote = existing
     }
 
-    // Delete existing phases to avoid duplicates
     await supabaseAdmin.from('bf_quote_phases').delete().eq('quote_id', quote.id)
 
-    // Insert all template phases + items
     for (const phase of HOUSE_TEMPLATE) {
       const { data: phaseRow, error: phaseErr } = await supabaseAdmin
         .from('bf_quote_phases')
         .insert({
-          quote_id: quote.id,
-          project_id: projectId,
-          phase_name: phase.phase_name,
-          phase_order: phase.phase_order,
-          budget_amount: phase.budget_amount,
-          quoted_total: 0,
-          approved_total: 0,
-          status: 'under_budget',
+          quote_id: quote.id, project_id: projectId,
+          phase_name: phase.phase_name, phase_order: phase.phase_order,
+          budget_amount: phase.budget_amount, quoted_total: 0,
+          approved_total: 0, status: 'under_budget',
         })
         .select().single()
       if (phaseErr || !phaseRow) continue
-
       if (phase.items.length > 0) {
         await supabaseAdmin.from('bf_quote_items').insert(
           phase.items.map(item => ({
-            phase_id: phaseRow.id,
-            project_id: projectId,
-            item_type: item.item_type,
-            description: item.description,
+            phase_id: phaseRow.id, project_id: projectId,
+            item_type: item.item_type, description: item.description,
             estimated_amount: item.estimated_amount,
           }))
         )
       }
     }
-
     return NextResponse.json({ ok: true, phasesCreated: HOUSE_TEMPLATE.length })
   }
 
   // ── Add a phase ───────────────────────────────────────────────────────────
   if (action === 'add_phase') {
     const { data: quote } = await supabaseAdmin
-      .from('bf_project_quote')
-      .select('id')
-      .eq('project_id', projectId)
-      .single()
+      .from('bf_project_quote').select('id').eq('project_id', projectId).single()
     if (!quote) return NextResponse.json({ error: 'No quote found' }, { status: 404 })
     const { data, error } = await supabaseAdmin
       .from('bf_quote_phases')
       .insert({ ...rest, quote_id: quote.id, project_id: projectId })
-      .select()
-      .single()
+      .select().single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await logAudit({
+      project_id: projectId, entity_type: 'phase', entity_id: data.id,
+      entity_name: data.phase_name, action: 'created',
+      new_value: { phase_name: data.phase_name, budget_amount: data.budget_amount }, ...by,
+    })
     return NextResponse.json({ ok: true, phase: data })
   }
 
@@ -271,33 +282,175 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const { data, error } = await supabaseAdmin
       .from('bf_quote_items')
       .insert({ ...rest, project_id: projectId })
-      .select()
-      .single()
+      .select().single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await logAudit({
+      project_id: projectId, entity_type: 'item', entity_id: data.id,
+      entity_name: data.description, action: 'created',
+      new_value: { description: data.description, estimated_amount: data.estimated_amount, item_type: data.item_type }, ...by,
+    })
     return NextResponse.json({ ok: true, item: data })
   }
 
   // ── Update phase ──────────────────────────────────────────────────────────
   if (action === 'update_phase') {
     const { id, ...updates } = rest
+    const { data: prev } = await supabaseAdmin.from('bf_quote_phases').select('*').eq('id', id).single()
     const { data, error } = await supabaseAdmin
       .from('bf_quote_phases')
-      .update(updates)
-      .eq('id', id)
-      .eq('project_id', projectId)
-      .select()
-      .single()
+      .update(updates)            // no updated_at — column doesn't exist on this table
+      .eq('id', id).eq('project_id', projectId)
+      .select().single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (prev) {
+      const changed = diffFields(prev as Record<string, unknown>, data as Record<string, unknown>)
+      if (Object.keys(changed).length > 0) {
+        await logAudit({
+          project_id: projectId, entity_type: 'phase', entity_id: id,
+          entity_name: data.phase_name, action: 'updated',
+          changed_fields: changed,
+          previous_value: prev as Record<string, unknown>,
+          new_value: data as Record<string, unknown>, ...by,
+        })
+      }
+    }
     return NextResponse.json({ ok: true, phase: data })
   }
 
-  // ── Delete phase ──────────────────────────────────────────────────────────
+  // ── Update item ───────────────────────────────────────────────────────────
+  if (action === 'update_item') {
+    const { id, ...updates } = rest
+    const { data: prev } = await supabaseAdmin.from('bf_quote_items').select('*').eq('id', id).single()
+    const { data, error } = await supabaseAdmin
+      .from('bf_quote_items')
+      .update(updates)            // no updated_at — column doesn't exist on this table
+      .eq('id', id).eq('project_id', projectId)
+      .select().single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (prev) {
+      const changed = diffFields(prev as Record<string, unknown>, data as Record<string, unknown>)
+      if (Object.keys(changed).length > 0) {
+        await logAudit({
+          project_id: projectId, entity_type: 'item', entity_id: id,
+          entity_name: data.description, action: 'updated',
+          changed_fields: changed,
+          previous_value: prev as Record<string, unknown>,
+          new_value: data as Record<string, unknown>, ...by,
+        })
+      }
+    }
+    return NextResponse.json({ ok: true, item: data })
+  }
+
+  // ── Archive phase (soft delete) ───────────────────────────────────────────
+  if (action === 'archive_phase') {
+    const { id, reason } = rest
+    const { data: prev } = await supabaseAdmin.from('bf_quote_phases').select('*').eq('id', id).single()
+    const { error } = await supabaseAdmin
+      .from('bf_quote_phases')
+      .update({ is_archived: true, archived_at: new Date().toISOString() })
+      .eq('id', id).eq('project_id', projectId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await logAudit({
+      project_id: projectId, entity_type: 'phase', entity_id: id,
+      entity_name: prev?.phase_name, action: 'archived',
+      previous_value: prev as Record<string, unknown>, reason, ...by,
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Restore phase ─────────────────────────────────────────────────────────
+  if (action === 'restore_phase') {
+    const { id } = rest
+    const { data: prev } = await supabaseAdmin.from('bf_quote_phases').select('*').eq('id', id).single()
+    const { error } = await supabaseAdmin
+      .from('bf_quote_phases')
+      .update({ is_archived: false, archived_at: null })
+      .eq('id', id).eq('project_id', projectId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await logAudit({
+      project_id: projectId, entity_type: 'phase', entity_id: id,
+      entity_name: prev?.phase_name, action: 'restored', ...by,
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Archive item (soft delete) ────────────────────────────────────────────
+  if (action === 'archive_item') {
+    const { id, reason } = rest
+    const { data: prev } = await supabaseAdmin.from('bf_quote_items').select('*').eq('id', id).single()
+    const { error } = await supabaseAdmin
+      .from('bf_quote_items')
+      .update({ is_archived: true, archived_at: new Date().toISOString() })
+      .eq('id', id).eq('project_id', projectId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await logAudit({
+      project_id: projectId, entity_type: 'item', entity_id: id,
+      entity_name: prev?.description, action: 'archived',
+      previous_value: prev as Record<string, unknown>, reason, ...by,
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Restore item ──────────────────────────────────────────────────────────
+  if (action === 'restore_item') {
+    const { id } = rest
+    const { data: prev } = await supabaseAdmin.from('bf_quote_items').select('*').eq('id', id).single()
+    const { error } = await supabaseAdmin
+      .from('bf_quote_items')
+      .update({ is_archived: false, archived_at: null })
+      .eq('id', id).eq('project_id', projectId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await logAudit({
+      project_id: projectId, entity_type: 'item', entity_id: id,
+      entity_name: prev?.description, action: 'restored', ...by,
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Builder sets agreed amount → KORVIA notifies sub via SMS ────────────
+  if (action === 'notify_sub_agreed') {
+    const { task_id, sub_id, sub_phone, sub_company, phase_name, agreed_amount } = rest
+    const fmt$ = (n: number) =>
+      new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+
+    // Persist approved_amount
+    if (task_id && sub_id) {
+      await supabaseAdmin.from('bf_sub_budgets').upsert(
+        { project_id: projectId, task_id, sub_id, approved_amount: agreed_amount, payment_status: 'pending' },
+        { onConflict: 'task_id,sub_id' }
+      )
+    }
+
+    // Send KORVIA SMS
+    if (sub_phone) {
+      const { data: proj } = await supabaseAdmin
+        .from('bf_projects').select('name').eq('id', projectId).single()
+      const projectName = proj?.name ?? 'el proyecto'
+      try {
+        await sendSMS(
+          sub_phone,
+          `KORVIA: El constructor revisó tu cotización para "${phase_name}" en ${projectName}. ` +
+          `El monto acordado es ${fmt$(agreed_amount)}. Por favor revisa tu portal para confirmar.`
+        )
+      } catch {}
+    }
+
+    await logAudit({
+      project_id: projectId, entity_type: 'phase', entity_id: task_id ?? phase_name,
+      entity_name: phase_name, action: 'updated',
+      new_value: { agreed_amount, sub_company, phase_name }, ...by,
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Hard delete phase (legacy) ────────────────────────────────────────────
   if (action === 'delete_phase') {
     await supabaseAdmin.from('bf_quote_phases').delete().eq('id', rest.id).eq('project_id', projectId)
     return NextResponse.json({ ok: true })
   }
 
-  // ── Delete item ───────────────────────────────────────────────────────────
+  // ── Hard delete item (legacy) ─────────────────────────────────────────────
   if (action === 'delete_item') {
     await supabaseAdmin.from('bf_quote_items').delete().eq('id', rest.id).eq('project_id', projectId)
     return NextResponse.json({ ok: true })
@@ -308,8 +461,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     .from('bf_project_quote')
     .update({ ...rest, updated_at: new Date().toISOString() })
     .eq('project_id', projectId)
-    .select()
-    .single()
+    .select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true, quote: data })
 }

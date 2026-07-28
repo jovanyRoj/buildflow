@@ -7,88 +7,56 @@ const ALLOWED_TYPES = [
   'image/jpeg', 'image/png', 'image/heic', 'image/heif', 'image/webp',
   'application/pdf',
 ]
-const MAX_SIZE_MB = 20
+const MAX_SIZE_MB = 50   // checked client-side; signed URL handles the actual upload
 
-// ── POST /api/portal/[projectId]/[subId]/upload ────────────────────────────
-// Sub uploads a photo or PDF tied to a task.
-// Saved to buildflow-files bucket under portal/{projectId}/{taskId}/
-// Recorded in bf_project_files with uploaded_by_sub=true.
+// POST /api/portal/[projectId]/[subId]/upload
+// Body: JSON { fileId, filename, contentType, size, task_id?, category?, notes? }
+// Returns: { signedUrl, token, path, fileId }
+// The client uploads directly to Supabase Storage using signedUrl (bypasses Vercel body limit).
 
 export async function POST(req: NextRequest, { params }: Ctx) {
   const { projectId, subId } = await params
-
   try {
-    const formData = await req.formData()
-    const file     = formData.get('file')     as File   | null
-    const taskId   = formData.get('task_id')  as string | null
-    const category = formData.get('category') as string | null
-    const notes    = formData.get('notes')    as string | null
+    const body         = await req.json()
+    const { fileId, filename, contentType, size, task_id, category, notes } = body
 
-    if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
-
-    // Type check
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      return NextResponse.json({ error: 'Only photos (JPG, PNG, HEIC) and PDFs are allowed' }, { status: 400 })
+    if (!filename || !contentType) {
+      return NextResponse.json({ error: 'Missing filename or contentType' }, { status: 400 })
     }
-
-    // Size check
-    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+    if (!ALLOWED_TYPES.includes(contentType)) {
+      return NextResponse.json({ error: 'Only photos (JPG, PNG, HEIC, WebP) and PDFs are allowed' }, { status: 400 })
+    }
+    if (size && size > MAX_SIZE_MB * 1024 * 1024) {
       return NextResponse.json({ error: `File exceeds ${MAX_SIZE_MB}MB limit` }, { status: 400 })
     }
 
-    // Get sub phone for tagging
+    // Verify sub belongs to project
     const { data: sub } = await supabaseAdmin
-      .from('bf_subcontractors').select('phone, name, company').eq('id', subId).single()
-    if (!sub) return NextResponse.json({ error: 'Sub not found' }, { status: 404 })
+      .from('bf_subcontractors').select('id, phone, company').eq('id', subId).eq('project_id', projectId).maybeSingle()
+    if (!sub) return NextResponse.json({ error: 'Access denied' }, { status: 403 })
 
-    // Build storage path
-    const ext      = file.name.split('.').pop()?.toLowerCase() ?? 'bin'
-    const fileId   = crypto.randomUUID()
-    const folder   = taskId ? `portal/${projectId}/${taskId}` : `portal/${projectId}`
-    const filePath = `${folder}/${fileId}.${ext}`
+    const ext      = filename.split('.').pop()?.toLowerCase() ?? 'bin'
+    const id       = fileId ?? crypto.randomUUID()
+    const folder   = task_id ? `portal/${projectId}/${task_id}` : `portal/${projectId}`
+    const filePath = `${folder}/${id}.${ext}`
 
-    const buffer = new Uint8Array(await file.arrayBuffer())
-
-    const { error: storageErr } = await supabaseAdmin.storage
+    // Create signed upload URL (client will PUT directly to Supabase — no Vercel body limit)
+    const { data: signData, error: signErr } = await supabaseAdmin.storage
       .from('buildflow-files')
-      .upload(filePath, buffer, {
-        contentType: file.type || 'application/octet-stream',
-        upsert: false,
-      })
+      .createSignedUploadUrl(filePath)
 
-    if (storageErr) return NextResponse.json({ error: storageErr.message }, { status: 500 })
+    if (signErr || !signData) {
+      return NextResponse.json({ error: signErr?.message ?? 'Could not create signed URL' }, { status: 500 })
+    }
 
-    const { data: urlData } = supabaseAdmin.storage
-      .from('buildflow-files')
-      .getPublicUrl(filePath)
-
-    // Determine category label
-    const cat = category ?? (file.type.startsWith('image/') ? 'sub_photo' : 'sub_document')
-
-    const { data: record, error: dbErr } = await supabaseAdmin
-      .from('bf_project_files')
-      .insert({
-        id:               fileId,
-        project_id:       projectId,
-        task_id:          taskId ?? null,
-        name:             file.name,
-        category:         cat,
-        file_url:         urlData.publicUrl,
-        file_path:        filePath,
-        file_size:        file.size,
-        file_type:        file.type,
-        uploaded_by_sub:  true,
-        sub_phone:        sub.phone,
-        notes:            notes ?? null,
-      })
-      .select()
-      .single()
-
-    if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 })
-
-    return NextResponse.json({ ok: true, file: record })
+    return NextResponse.json({
+      ok: true,
+      signedUrl: signData.signedUrl,
+      token: signData.token,
+      path: filePath,
+      fileId: id,
+    })
   } catch (e: any) {
-    console.error('[portal/upload]', e)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }

@@ -147,7 +147,7 @@ function taskToDb(t: Task) {
     notes: t.notes, dependencies: t.dependencies,
     inspection_required: t.inspectionRequired, inspection_status: t.inspectionStatus,
     inspection_notes: t.inspectionNotes ?? '', portal_token: t.portalToken ?? null,
-    sms_last_sent: t.smsLastSent ?? null, updated_at: t.updatedAt,
+    sms_last_sent: t.smsLastSent ?? null,
   }
 }
 

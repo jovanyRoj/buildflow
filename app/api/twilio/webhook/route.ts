@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { askKorvia, KorviaContext } from '@/lib/korvia'
+import { buildKorviaProjectContext } from '@/lib/korvia-context'
 import { sendSMS } from '@/lib/sms'
 
 // ─── POST /api/twilio/webhook ─────────────────────────────────────────────────
@@ -16,19 +17,15 @@ export async function POST(req: NextRequest) {
 
     console.log(`[KORVIA] SMS from ${from}: "${body}"`)
 
-    // 1. Look up active task for this phone number
     const ctx = await getContextForPhone(from)
 
     if (!ctx) {
-      // Unknown number — KORVIA responds generically
       twimlReply = 'Hi! This is Brivox. We don\'t have an active task for your number. ' +
         'Contact your builder for access.'
     } else {
-      // 2. Ask KORVIA (Claude AI)
       const korvia = await askKorvia(body, ctx)
       console.log('[KORVIA] Response:', korvia)
 
-      // 3. Execute action in Supabase
       if (korvia.action === 'update_status' && korvia.newStatus && ctx.taskId) {
         await updateTaskStatus(ctx, korvia.newStatus, korvia.delayDays ?? 0)
       }
@@ -36,10 +33,8 @@ export async function POST(req: NextRequest) {
         await updateInspection(ctx, korvia.inspectionStatus)
       }
 
-      // 4. Log notification in app
       await logNotification(ctx, korvia)
 
-      // 5. Alert builder via SMS if high urgency
       if (korvia.urgency === 'high' && korvia.builderAlert) {
         await notifyBuilder(ctx, korvia.builderAlert)
       }
@@ -59,13 +54,11 @@ export async function POST(req: NextRequest) {
   })
 }
 
-// ─── Supabase lookups ─────────────────────────────────────────────────────────
+// ─── Context loader ───────────────────────────────────────────────────────────
 
 async function getContextForPhone(phone: string): Promise<KorviaContext | null> {
-  // Normalize phone for comparison
   const normalized = phone.replace(/\D/g, '')
 
-  // Find task assigned to this phone
   const { data: tasks } = await supabaseAdmin
     .from('bf_tasks')
     .select(`
@@ -82,10 +75,9 @@ async function getContextForPhone(phone: string): Promise<KorviaContext | null> 
 
   if (!tasks || tasks.length === 0) return null
 
-  const task = tasks[0]
+  const task    = tasks[0]
   const project = (task as any).bf_projects
 
-  // Look up sub record (name + id for portal messages)
   const { data: sub } = await supabaseAdmin
     .from('bf_subcontractors')
     .select('id, name')
@@ -94,7 +86,6 @@ async function getContextForPhone(phone: string): Promise<KorviaContext | null> 
     .limit(1)
     .maybeSingle()
 
-  // Fetch sub's quoted cost from bf_sub_budgets
   let subQuotedCost: number | null = null
   if (sub?.id) {
     const { data: budget } = await supabaseAdmin
@@ -106,7 +97,6 @@ async function getContextForPhone(phone: string): Promise<KorviaContext | null> 
     subQuotedCost = budget?.quoted_amount ?? null
   }
 
-  // Fetch recent portal messages for context
   let recentPortalMessages: { sender: string; content: string; created_at: string }[] = []
   if (sub?.id) {
     const { data: msgs } = await supabaseAdmin
@@ -119,54 +109,48 @@ async function getContextForPhone(phone: string): Promise<KorviaContext | null> 
     recentPortalMessages = (msgs ?? []).reverse()
   }
 
+  // Load full project context so KORVIA knows about ALL tasks, not just this sub's
+  let allProjectContext: string | null = null
+  try {
+    allProjectContext = await buildKorviaProjectContext(project.id)
+  } catch (e) {
+    console.error('[KORVIA] Failed to load project context:', e)
+  }
+
   return {
-    subName: sub?.name ?? task.assigned_to ?? '',
+    subName:  sub?.name ?? task.assigned_to ?? '',
     subPhone: phone,
-    taskId: task.id,
+    taskId:   task.id,
     taskName: task.name,
-    taskStatus: task.status,
+    taskStatus:    task.status,
     taskStartDate: task.start_date,
-    taskEndDate: task.end_date,
-    taskNotes: task.notes ?? '',
+    taskEndDate:   task.end_date,
+    taskNotes:     task.notes ?? '',
     inspectionRequired: task.inspection_required ?? false,
-    projectId: project.id,
-    projectName: project.name,
+    projectId:      project.id,
+    projectName:    project.name,
     projectAddress: project.address,
-    userId: project.user_id,
-    // Portal data
-    subCommittedStart:    task.sub_start_date ?? null,
-    subCommittedEnd:      task.sub_end_date   ?? null,
-    subNotes:             task.sub_notes       ?? null,
-    subCrewSize:          task.sub_crew_size   ?? null,
-    subMaterialsStatus:   task.sub_materials_status ?? null,
-    subConfirmed:         task.sub_confirmed   ?? false,
+    userId:         project.user_id,
+    subCommittedStart:  task.sub_start_date    ?? null,
+    subCommittedEnd:    task.sub_end_date      ?? null,
+    subNotes:           task.sub_notes         ?? null,
+    subCrewSize:        task.sub_crew_size     ?? null,
+    subMaterialsStatus: task.sub_materials_status ?? null,
+    subConfirmed:       task.sub_confirmed     ?? false,
     subQuotedCost,
     recentPortalMessages,
+    allProjectContext,
   }
 }
 
-// ─── Task updates ─────────────────────────────────────────────────────────────
+// ─── DB updates ───────────────────────────────────────────────────────────────
 
-async function updateTaskStatus(
-  ctx: KorviaContext,
-  newStatus: string,
-  delayDays: number
-) {
-  const updates: Record<string, any> = {
-    status: newStatus,
-    updated_at: new Date().toISOString(),
-  }
+async function updateTaskStatus(ctx: KorviaContext, newStatus: string, delayDays: number) {
+  const updates: Record<string, any> = { status: newStatus, updated_at: new Date().toISOString() }
+  if (newStatus === 'completed') updates.sms_last_sent = new Date().toISOString()
 
-  if (newStatus === 'completed') {
-    updates.sms_last_sent = new Date().toISOString()
-  }
+  await supabaseAdmin.from('bf_tasks').update(updates).eq('id', ctx.taskId)
 
-  await supabaseAdmin
-    .from('bf_tasks')
-    .update(updates)
-    .eq('id', ctx.taskId)
-
-  // Log history
   await supabaseAdmin.from('bf_history').insert({
     id: crypto.randomUUID(),
     project_id: ctx.projectId,
@@ -180,8 +164,7 @@ async function updateTaskStatus(
 }
 
 async function updateInspection(ctx: KorviaContext, inspectionStatus: string) {
-  await supabaseAdmin
-    .from('bf_tasks')
+  await supabaseAdmin.from('bf_tasks')
     .update({ inspection_status: inspectionStatus, updated_at: new Date().toISOString() })
     .eq('id', ctx.taskId)
 
@@ -198,11 +181,11 @@ async function updateInspection(ctx: KorviaContext, inspectionStatus: string) {
 
 async function logNotification(ctx: KorviaContext, korvia: any) {
   const icons: Record<string, string> = {
-    update_status: korvia.newStatus === 'completed' ? '✅' : korvia.newStatus === 'delayed' ? '⚠️' : '🔨',
-    flag_blocker: '🚨',
+    update_status:     korvia.newStatus === 'completed' ? '✅' : korvia.newStatus === 'delayed' ? '⚠️' : '🔨',
+    flag_blocker:      '🚨',
     inspection_update: korvia.inspectionStatus === 'passed' ? '✅' : '📋',
-    answer_question: '💬',
-    no_action: '📩',
+    answer_question:   '💬',
+    no_action:         '📩',
   }
 
   await supabaseAdmin.from('bf_notifications').insert({
@@ -218,13 +201,8 @@ async function logNotification(ctx: KorviaContext, korvia: any) {
 }
 
 async function notifyBuilder(ctx: KorviaContext, alertMessage: string) {
-  // Get builder's phone from bf_users (if stored)
   const { data: user } = await supabaseAdmin
-    .from('bf_users')
-    .select('phone')
-    .eq('id', ctx.userId)
-    .maybeSingle()
-
+    .from('bf_users').select('phone').eq('id', ctx.userId).maybeSingle()
   if (user?.phone) {
     await sendSMS(
       user.phone,

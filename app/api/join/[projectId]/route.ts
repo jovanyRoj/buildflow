@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
     const { data: project } = await supabaseAdmin
       .from('bf_projects')
-      .select('id, name, address, user_id')
+      .select('id, name, address, user_id, start_date, estimated_end_date')
       .eq('id', projectId)
       .single()
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
@@ -73,31 +73,109 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       }
     }
 
-    // Auto-assign matching tasks
-    const tradeTaskMap: Record<string, string[]> = {
-      electrical: ['Electrical Rough-In', 'Electrical Trim'],
-      plumbing:   ['Plumbing Rough-In', 'Plumbing Trim'],
-      hvac:       ['HVAC Rough-In', 'HVAC Trim'],
-      framing:    ['Framing', 'Roof Framing'],
-      concrete:   ['Foundation', 'Flatwork / Concrete'],
-      roofing:    ['Roofing'],
-      drywall:    ['Drywall', 'Drywall Finish'],
-      paint:      ['Interior Paint', 'Exterior Paint'],
-      flooring:   ['Flooring'],
-      general:    [],
+    // Auto-assign matching tasks using keyword-based fuzzy matching
+    const tradeKeywords: Record<string, string[]> = {
+      electrical:  ['electric', 'wiring', 'panel', 'outlet', 'circuit', 'lighting'],
+      plumbing:    ['plumb', 'pipe', 'water', 'drain', 'sewage', 'toilet'],
+      hvac:        ['hvac', 'heat', 'cool', 'air', 'ventilat', 'duct', 'mechanical'],
+      framing:     ['fram', 'lumber', 'stud', 'beam', 'sheathing'],
+      concrete:    ['concret', 'foundation', 'flatwork', 'slab', 'footing', 'pour'],
+      roofing:     ['roof', 'shingle', 'tile', 'gutter', 'fascia'],
+      drywall:     ['drywall', 'sheetrock', 'gypsum', 'plaster', 'texture'],
+      paint:       ['paint', 'primer', 'stain', 'coat'],
+      flooring:    ['floor', 'tile', 'carpet', 'hardwood', 'laminate', 'vinyl'],
+      survey:      ['survey', 'land', 'plat', 'boundary', 'stake', 'topograph'],
+      surveyor:    ['survey', 'land', 'plat', 'boundary', 'stake', 'topograph'],
+      excavation:  ['excavat', 'dig', 'grade', 'earthwork', 'demo', 'demolit', 'clear'],
+      landscaping: ['landscap', 'lawn', 'irrigat', 'tree', 'plant', 'sod', 'fence'],
+      masonry:     ['mason', 'brick', 'block', 'stone', 'mortar', 'stucco'],
+      insulation:  ['insulat', 'foam', 'batts', 'spray'],
+      windows:     ['window', 'door', 'glazing'],
+      cabinet:     ['cabinet', 'countertop', 'millwork'],
+      general:     [],
     }
-    const taskNames = tradeTaskMap[trade] ?? []
-    if (taskNames.length > 0) {
-      const { data: tasks } = await supabaseAdmin
-        .from('bf_tasks').select('id, name')
-        .eq('project_id', projectId).in('name', taskNames)
-      if (tasks?.length) {
-        for (const t of tasks) {
-          await supabaseAdmin
-            .from('bf_tasks')
-            .update({ assigned_to: company, subcontractor_phone: e164 })
-            .eq('id', t.id)
-        }
+
+    // Get keywords for this trade (also try splitting the trade name into parts)
+    const tradeLower = trade.toLowerCase().trim()
+    const tradeParts = tradeLower.split(/[\s_-]+/)
+    const keywords: string[] =
+      tradeKeywords[tradeLower] ??
+      tradeParts.flatMap((p: string) => tradeKeywords[p] ?? [p])
+
+    // Fetch all project tasks
+    const { data: allTasks } = await supabaseAdmin
+      .from('bf_tasks').select('id, name, assigned_to, subcontractor_phone')
+      .eq('project_id', projectId)
+
+    const companyLower = company.toLowerCase()
+    const matchedTasks = (allTasks ?? []).filter((t: any) => {
+      const tName     = (t.name ?? '').toLowerCase()
+      const tAssigned = (t.assigned_to ?? '').toLowerCase()
+      // Skip tasks already claimed by a different sub
+      if (t.subcontractor_phone && t.subcontractor_phone !== e164) return false
+      // Match if task's assigned_to already contains this company name (or vice versa)
+      if (tAssigned && (tAssigned.includes(companyLower) || companyLower.includes(tAssigned))) return true
+      // Match by keyword in task name
+      return keywords.length > 0 && keywords.some((kw: string) => tName.includes(kw.toLowerCase()))
+    })
+
+    let autoAssigned = 0
+    if (matchedTasks.length > 0) {
+      for (const t of matchedTasks) {
+        await supabaseAdmin
+          .from('bf_tasks')
+          .update({ assigned_to: company, subcontractor_phone: e164 })
+          .eq('id', t.id)
+        autoAssigned++
+      }
+      const taskNamesList = matchedTasks.map((t: any) => `"${t.name}"`).join(', ')
+      await supabaseAdmin.from('bf_notifications').insert({
+        project_id: projectId,
+        type: 'subcontractor',
+        title: `🤖 KORVIA: ${company} auto-matched to ${autoAssigned} task(s)`,
+        body: `${contactName} registered as ${trade} and was auto-assigned to: ${taskNamesList}. Verify assignment is correct.`,
+        is_read: false,
+      })
+    } else {
+      // No existing tasks matched — AUTO-CREATE a task for this sub/trade
+      const taskLabel  = trade.charAt(0).toUpperCase() + trade.slice(1).toLowerCase()
+      const startDate  = (project as any).start_date         ?? new Date().toISOString().split('T')[0]
+      const endDate    = (project as any).estimated_end_date ?? startDate
+      const durationMs = new Date(endDate).getTime() - new Date(startDate).getTime()
+      const durDays    = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)))
+
+      const { count: taskCount } = await supabaseAdmin
+        .from('bf_tasks').select('*', { count: 'exact', head: true }).eq('project_id', projectId)
+
+      const newTaskId = uuidv4()
+      const { error: taskErr } = await supabaseAdmin.from('bf_tasks').insert({
+        id: newTaskId,
+        project_id: projectId,
+        name: `${taskLabel} Work`,
+        status: 'pending',
+        start_date: startDate,
+        end_date: endDate,
+        original_end_date: endDate,
+        duration_days: durDays,
+        delay_days: 0,
+        assigned_to: company,
+        subcontractor_phone: e164,
+        task_order: (taskCount ?? 0) + 1,
+        notes: '',
+        portal_token: uuidv4(),
+        inspection_required: false,
+      })
+
+      if (!taskErr) {
+        autoAssigned = 1
+        await supabaseAdmin.from('bf_notifications').insert({
+          project_id: projectId, type: 'subcontractor',
+          title: `🤖 KORVIA: Nueva tarea para ${company}`,
+          body: `${contactName} se registró como ${trade}. Tarea "${taskLabel} Work" creada automáticamente.`,
+          is_read: false,
+        })
+      } else {
+        console.error('[join/auto-create-task]', taskErr)
       }
     }
 
@@ -108,7 +186,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       body: JSON.stringify({
         phone: e164, company, contactName, trade,
         projectName: project.name, projectAddress: project.address,
-        assignedCount: taskNames.length,
+        assignedCount: autoAssigned,
       }),
     }).catch(() => {})
 

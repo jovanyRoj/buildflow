@@ -49,15 +49,12 @@ function formatBytes(b: number) {
 export default function ProjectDetailPage() {
   const params   = useParams()
   const router   = useRouter()
-  const { getProject, deleteProject, addTask, deleteTask, updateTask, refreshProjects } = useBrivoxStore()
+  const { getProject, deleteProject, deleteTask, refreshProjects } = useBrivoxStore()
   const { ready } = useAuthGuard()
   const project  = getProject(params.id as string)
   const contractors: Sub[] = (project as any)?.subcontractors ?? []
 
   const [showDelete, setShowDelete]       = useState(false)
-  const [showAddTask, setShowAddTask]     = useState(false)
-  const [newTask, setNewTask]             = useState({ name: '', startDate: '', endDate: '', notes: '' })
-  const [addingTask, setAddingTask]       = useState(false)
   const [taskToDelete, setTaskToDelete]   = useState<string | null>(null)
   const [files, setFiles]                 = useState<ProjectFile[]>([])
   const [loadingFiles, setLoadingFiles]   = useState(true)
@@ -70,10 +67,16 @@ export default function ProjectDetailPage() {
   const [editForm, setEditForm] = useState<Sub | null>(null)
   const [editSaving, setEditSaving] = useState(false)
 
-  // ── Refresh project data on mount so sub portal status changes appear ──
-  useEffect(() => {
-    refreshProjects()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // ── KORVIA chat ──
+  const [korviaOpen, setKorviaOpen]       = useState(false)
+  const [korviaQ, setKorviaQ]             = useState('')
+  const [korviaA, setKorviaA]             = useState('')
+  const [korviaLoading, setKorviaLoading] = useState(false)
+  const [korviaSync, setKorviaSync]       = useState(false)
+  const [korviaCtx, setKorviaCtx]         = useState<{ tasks: any[]; subs: any[]; finance: any; computed: any } | null>(null)
+  const [korviaCtxLoading, setKorviaCtxLoading] = useState(false)
+
+  useEffect(() => { refreshProjects() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!project) return
@@ -103,15 +106,6 @@ export default function ProjectDetailPage() {
     setFiles(prev => prev.filter(f => f.id !== fileId))
   }
 
-  function handleAddTask(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newTask.name || !newTask.startDate || !newTask.endDate) return
-    setAddingTask(true)
-    addTask(project!.id, newTask)
-    setNewTask({ name: '', startDate: '', endDate: '', notes: '' })
-    setAddingTask(false); setShowAddTask(false)
-  }
-
   function openEditSub(c: Sub) { setEditSub(c); setEditForm({ ...c }) }
 
   async function handleEditSave() {
@@ -132,6 +126,51 @@ export default function ProjectDetailPage() {
     )
   }
 
+  async function openKorvia() {
+    setKorviaOpen(true)
+    if (!project?.id || korviaCtx) return
+    setKorviaCtxLoading(true)
+    try {
+      const [ctxRes, finRes] = await Promise.all([
+        fetch(`/api/builder/project-context/${project.id}`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/builder/projects/${project.id}/financials`).then(r => r.ok ? r.json() : null),
+      ])
+      setKorviaCtx({
+        tasks:    ctxRes?.tasks    ?? [],
+        subs:     ctxRes?.subs     ?? [],
+        finance:  finRes?.financials ?? null,
+        computed: finRes?.computed   ?? null,
+      })
+    } catch {}
+    setKorviaCtxLoading(false)
+  }
+
+  async function askKorvia() {
+    if (!korviaQ.trim() || !project) return
+    setKorviaLoading(true); setKorviaA('')
+    try {
+      const res  = await fetch('/api/builder/ask-korvia', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, question: korviaQ }),
+      })
+      const data = await res.json()
+      setKorviaA(data.answer ?? data.error ?? '⚠️ KORVIA no respondió. Revisa los logs de Vercel.')
+    } catch (e: any) {
+      setKorviaA(`⚠️ Error de red: ${e.message}`)
+    }
+    setKorviaLoading(false)
+  }
+
+  async function runKorviaSync() {
+    if (!project) return
+    setKorviaSync(true)
+    try {
+      await fetch(`/api/builder/project-sync/${project.id}`, { method: 'POST' })
+      await refreshProjects()
+    } catch {}
+    setKorviaSync(false)
+  }
+
   if (!ready) return <Spinner />
   if (!project) return (
     <div className="flex items-center justify-center min-h-screen">
@@ -146,7 +185,7 @@ export default function ProjectDetailPage() {
   const delayed   = project.tasks.filter(t => t.status === 'delayed').length
   const completed = project.tasks.filter(t => t.status === 'completed').length
   const mapsUrl   = `https://maps.google.com/?q=${encodeURIComponent(project.address)}`
-  const joinUrl   = `${typeof window !== 'undefined' ? window.location.origin : 'https://buildflow-eight-sigma.vercel.app'}/join/${project.id}`
+  const joinUrl   = `${typeof window !== 'undefined' ? window.location.origin : 'https://brivox-jovanyrojs-projects.vercel.app'}/join/${project.id}`
   const bgColor   = (project as any).bgColor || '#1A2B4A'
 
   const unassignedTasks      = project.tasks.filter(t => !t.assignedTo)
@@ -178,7 +217,7 @@ export default function ProjectDetailPage() {
         }
       />
 
-      {/* Header with project bg color */}
+      {/* Header */}
       <div className="px-5 py-5" style={{ backgroundColor: bgColor }}>
         <div className="flex items-start justify-between mb-3">
           <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
@@ -215,15 +254,20 @@ export default function ProjectDetailPage() {
           <circle cx="18.1" cy="10.4" r="0.5" fill="white"/>
           <path d="M11 15.5 Q14 17.5 17 15.5" stroke="#94A3B8" strokeWidth="0.8" fill="none" strokeLinecap="round"/>
           <rect x="12" y="23" width="4" height="2.5" rx="1" fill="#CBD5E1"/>
-          <circle cx="14" cy="13" r="9.5" stroke="#818CF8" strokeWidth="0.5" strokeDasharray="2 2" opacity="0.5"/>
         </svg>
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-indigo-700">KORVIA is active</p>
-          <p className="text-xs text-indigo-500 truncate">Monitoring subcontractor SMS updates 24/7</p>
+          <p className="text-xs text-indigo-500 truncate">Monitoring subcontractor updates 24/7</p>
         </div>
-        <Link href={`/projects/${project.id}/contractors`} className="text-xs text-indigo-600 font-semibold whitespace-nowrap">
-          Manage →
-        </Link>
+        <button onClick={runKorviaSync} disabled={korviaSync}
+          title="KORVIA re-matches all registered subs to tasks by trade"
+          className="text-xs text-indigo-600 font-semibold border border-indigo-200 rounded-lg px-2 py-1 disabled:opacity-50 mr-1">
+          {korviaSync ? '⟳' : '🔄 Sync'}
+        </button>
+        <button onClick={openKorvia}
+          className="text-xs text-white font-semibold bg-indigo-600 rounded-lg px-2.5 py-1">
+          Ask 🤖
+        </button>
       </div>
 
       {/* Stats */}
@@ -266,11 +310,6 @@ export default function ProjectDetailPage() {
       <div className="px-4 mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-[#1A2B4A]">Tasks ({project.tasks.length})</h2>
-          <button onClick={() => setShowAddTask(true)}
-            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-xl active:scale-95 transition">
-            <svg width="12" height="12" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add Task
-          </button>
         </div>
         <div className="card divide-y divide-gray-50">
           {project.tasks.map(task => {
@@ -316,8 +355,7 @@ export default function ProjectDetailPage() {
                     <svg width="14" height="14" fill="none" stroke="#cbd5e1" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
                   </div>
                 </Link>
-                <button
-                  onClick={() => setTaskToDelete(task.id)}
+                <button onClick={() => setTaskToDelete(task.id)}
                   className="px-3 py-3.5 text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100 flex-shrink-0">
                   <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -335,7 +373,6 @@ export default function ProjectDetailPage() {
           <h2 className="text-sm font-bold text-[#1A2B4A]">👷 Subcontractors</h2>
           <Link href={`/projects/${project.id}/contractors`} className="text-xs text-blue-600 font-semibold">Manage all →</Link>
         </div>
-
         <div className="flex gap-2 mb-3 flex-wrap">
           <div className="flex items-center gap-1.5 bg-green-50 border border-green-100 rounded-full px-3 py-1">
             <span className="w-2 h-2 rounded-full bg-green-500"/>
@@ -354,7 +391,6 @@ export default function ProjectDetailPage() {
             </div>
           )}
         </div>
-
         {contractors.length === 0 ? (
           <div className="card p-4 flex items-center gap-3">
             <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-xl flex-shrink-0">👷</div>
@@ -362,7 +398,7 @@ export default function ProjectDetailPage() {
               <p className="text-sm font-semibold text-gray-600">No subs registered yet</p>
               <p className="text-xs text-gray-400 mt-0.5">Share the join link so contractors can register</p>
             </div>
-            <button onClick={() => { navigator.clipboard?.writeText(joinUrl) }}
+            <button onClick={() => navigator.clipboard?.writeText(joinUrl)}
               className="text-xs text-blue-600 font-semibold flex-shrink-0">Copy link</button>
           </div>
         ) : (
@@ -417,10 +453,9 @@ export default function ProjectDetailPage() {
             })}
           </div>
         )}
-
         <div className="mt-3 card p-3 flex items-center gap-2">
           <p className="text-xs text-gray-400 flex-1 truncate">🔗 {joinUrl}</p>
-          <button onClick={() => { navigator.clipboard?.writeText(joinUrl) }}
+          <button onClick={() => navigator.clipboard?.writeText(joinUrl)}
             className="text-xs text-blue-600 font-semibold flex-shrink-0 px-2 py-1 bg-blue-50 rounded-lg">Copy</button>
         </div>
       </div>
@@ -448,7 +483,7 @@ export default function ProjectDetailPage() {
             className="w-full py-3 rounded-xl border-2 border-dashed border-blue-200 text-blue-600 text-sm font-medium flex items-center justify-center gap-2 hover:bg-blue-50 transition disabled:opacity-50">
             {uploading
               ? <><div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"/> Uploading...</>
-              : <><svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              : <><svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               Upload {FILE_CATEGORIES.find(c => c.value === uploadCat)?.label} File</>
             }
           </button>
@@ -476,7 +511,7 @@ export default function ProjectDetailPage() {
                       <p className="text-xs text-gray-400">{formatBytes(file.file_size)} · {format(parseISO(file.uploaded_at), 'MMM d, yyyy')}</p>
                     </div>
                     <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="p-2 text-blue-500 hover:text-blue-700 transition">
-                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </a>
                     <button onClick={() => handleDeleteFile(file.id)} className="p-2 text-gray-300 hover:text-red-400 transition">
                       <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
@@ -489,8 +524,112 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* MODALS */}
+      {/* ── ASK KORVIA MODAL ──────────────────────────────────────────────── */}
+      {korviaOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+          onClick={() => { setKorviaOpen(false); setKorviaA(''); setKorviaQ('') }}>
+          <div className="w-full max-w-[480px] bg-white rounded-t-3xl p-5 pb-8"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <h3 className="text-sm font-bold text-[#1A2B4A]">Ask KORVIA</h3>
+              </div>
+              <button onClick={() => { setKorviaOpen(false); setKorviaA(''); setKorviaQ('') }}
+                className="text-gray-400 hover:text-gray-600 p-1">
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
 
+            {/* ── KORVIA Knowledge Panel ── */}
+            {korviaCtxLoading && (
+              <div className="bg-indigo-50/40 rounded-xl px-3 py-2 mb-3 flex items-center gap-2">
+                <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0"/>
+                <p className="text-[11px] text-indigo-500">Cargando contexto del proyecto…</p>
+              </div>
+            )}
+            {korviaCtx && !korviaCtxLoading && !korviaA && (
+              <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 mb-3">
+                <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide mb-2">📡 KORVIA tiene acceso a</p>
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  <div className="bg-white rounded-lg p-2 text-center border border-indigo-50">
+                    <p className="text-[9px] text-gray-400 mb-0.5">Tareas</p>
+                    <p className="text-base font-bold text-indigo-700">{korviaCtx.tasks.length}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-2 text-center border border-indigo-50">
+                    <p className="text-[9px] text-gray-400 mb-0.5">Subs</p>
+                    <p className="text-base font-bold text-indigo-700">{korviaCtx.subs.length}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-2 text-center border border-indigo-50">
+                    <p className="text-[9px] text-gray-400 mb-0.5">Finanzas</p>
+                    <p className="text-base font-bold text-indigo-700">{korviaCtx.finance ? '✅' : '—'}</p>
+                  </div>
+                </div>
+                {korviaCtx.finance?.sqft ? (
+                  <p className="text-[10px] text-indigo-600 bg-white rounded-lg px-2.5 py-1.5 border border-indigo-50">
+                    💰 {korviaCtx.finance.sqft.toLocaleString()} sqft
+                    {korviaCtx.finance.construction_cost_per_sqft ? ` · $${korviaCtx.finance.construction_cost_per_sqft}/sqft costo` : ''}
+                    {korviaCtx.finance.sale_price_per_sqft ? ` · $${korviaCtx.finance.sale_price_per_sqft}/sqft venta` : ''}
+                    {korviaCtx.computed?.projectedMargin != null ? ` · ${korviaCtx.computed.projectedMargin.toFixed(0)}% margen` : ''}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-gray-400 bg-white rounded-lg px-2.5 py-1.5 border border-gray-100">
+                    💡 Agrega datos en Finanzas para que KORVIA pueda responder sobre márgenes y costos
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Answer */}
+            {korviaLoading && (
+              <div className="bg-indigo-50 rounded-2xl p-3 mb-3 flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0"/>
+                <p className="text-xs text-indigo-600">KORVIA is thinking…</p>
+              </div>
+            )}
+            {korviaA && !korviaLoading && (
+              <div className="bg-indigo-50 rounded-2xl p-3 mb-3">
+                <p className="text-xs font-semibold text-indigo-500 mb-1.5">🤖 KORVIA</p>
+                <p className="text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">{korviaA}</p>
+              </div>
+            )}
+
+            {/* Input */}
+            <textarea
+              className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm resize-none focus:outline-none focus:border-indigo-400"
+              rows={3}
+              placeholder="Pregunta lo que quieras… ej: '¿Cuál es el margen proyectado?' o 'What tasks are delayed?'"
+              value={korviaQ}
+              onChange={e => setKorviaQ(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askKorvia() } }}
+            />
+            <button onClick={askKorvia} disabled={korviaLoading || !korviaQ.trim()}
+              className="w-full mt-2 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-50 active:scale-95 transition">
+              {korviaLoading ? 'Thinking…' : 'Ask KORVIA →'}
+            </button>
+
+            {!korviaA && !korviaLoading && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  '¿Cuál es el margen proyectado?',
+                  '¿Qué tareas están retrasadas?',
+                  '¿Cuánto se ha cotizado en total?',
+                  '¿Qué falta por hacer?',
+                ].map(q => (
+                  <button key={q} onClick={() => setKorviaQ(q)}
+                    className="text-xs text-indigo-600 border border-indigo-200 rounded-full px-2.5 py-1 hover:bg-indigo-50 transition">
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Sub Modal */}
       {editSub && editForm && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setEditSub(null)}>
           <div className="w-full max-w-[480px] bg-white rounded-t-3xl p-5 pb-8" onClick={e => e.stopPropagation()}>
@@ -543,49 +682,7 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {showAddTask && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50">
-          <div className="bg-white rounded-t-3xl p-5 w-full max-w-[480px] shadow-2xl pb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-[#1A2B4A]">Add Custom Task</h3>
-              <button onClick={() => setShowAddTask(false)} className="p-1.5 text-gray-400">
-                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <form onSubmit={handleAddTask} className="flex flex-col gap-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-500 block mb-1.5">TASK NAME *</label>
-                <input className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm"
-                  placeholder="e.g. Custom Inspection, Site Cleanup..."
-                  value={newTask.name} onChange={e => setNewTask(t => ({ ...t, name: e.target.value }))} required/>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-gray-500 block mb-1.5">START DATE *</label>
-                  <input type="date" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm"
-                    value={newTask.startDate} onChange={e => setNewTask(t => ({ ...t, startDate: e.target.value }))} required/>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-500 block mb-1.5">END DATE *</label>
-                  <input type="date" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm"
-                    value={newTask.endDate} onChange={e => setNewTask(t => ({ ...t, endDate: e.target.value }))} required/>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-500 block mb-1.5">NOTES (optional)</label>
-                <textarea className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm resize-none" rows={2}
-                  placeholder="Instructions for this task..."
-                  value={newTask.notes} onChange={e => setNewTask(t => ({ ...t, notes: e.target.value }))}/>
-              </div>
-              <button type="submit" disabled={addingTask}
-                className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold text-sm mt-1 disabled:opacity-60">
-                {addingTask ? 'Adding...' : '+ Add Task'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
+      {/* Delete task confirm */}
       {taskToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
@@ -602,6 +699,7 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
+      {/* Delete project confirm */}
       {showDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">

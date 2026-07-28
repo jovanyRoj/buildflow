@@ -50,6 +50,31 @@ export default function TaskDetailPage() {
   const [smsError, setSmsError] = useState('')
   const [copied, setCopied] = useState(false)
 
+  // ── Estimate comparison + sub schedule ────────────────────────────────────
+  const [estData, setEstData] = useState<{
+    builder: number | null
+    sub: number | null
+    subNotes: string | null
+    subSchedule: Record<string, { start: string; end: string }> | null
+    subScheduleNotes: string | null
+  } | null>(null)
+
+  useEffect(() => {
+    if (!project || !task) return
+    fetch(`/api/builder/project-context/${project.id}`)
+      .then(r => r.json())
+      .then(d => {
+        const t = (d.tasks ?? []).find((x: any) => x.id === task.id)
+        if (t) setEstData({
+          builder:          t.builder_estimate?.amount ?? null,
+          sub:              t.sub_estimate?.amount ?? null,
+          subNotes:         t.sub_estimate?.notes ?? null,
+          subSchedule:      t.sub_schedule ?? null,
+          subScheduleNotes: t.sub_schedule_notes ?? null,
+        })
+      }).catch(() => {})
+  }, [project?.id, task?.id])
+
   useEffect(() => {
     if (task) setForm({
       status: task.status,
@@ -168,6 +193,83 @@ export default function TaskDetailPage() {
             </p>
           )}
         </div>
+
+        {/* Estimate Comparison */}
+        {(estData?.builder || estData?.sub) && (
+          <div className="card p-4">
+            <label className="block text-xs font-semibold text-gray-500 mb-3">💰 ESTIMATE COMPARISON</label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-blue-50 rounded-xl p-3">
+                <p className="text-xs font-semibold text-blue-700 mb-1">Builder's Estimate</p>
+                {estData.builder ? (
+                  <p className="text-lg font-bold text-blue-800">${Math.round(estData.builder).toLocaleString()}</p>
+                ) : (
+                  <p className="text-xs text-blue-400 italic">Not set</p>
+                )}
+              </div>
+              <div className={`rounded-xl p-3 ${
+                estData.sub
+                  ? estData.builder && estData.sub > estData.builder ? 'bg-red-50' : 'bg-green-50'
+                  : 'bg-gray-50'
+              }`}>
+                <p className={`text-xs font-semibold mb-1 ${
+                  estData.sub
+                    ? estData.builder && estData.sub > estData.builder ? 'text-red-700' : 'text-green-700'
+                    : 'text-gray-500'
+                }`}>Sub's Real Estimate</p>
+                {estData.sub ? (
+                  <>
+                    <p className={`text-lg font-bold ${
+                      estData.builder && estData.sub > estData.builder ? 'text-red-800' : 'text-green-800'
+                    }`}>${Math.round(estData.sub).toLocaleString()}</p>
+                    {estData.subNotes && (
+                      <p className="text-xs text-gray-500 mt-1 truncate">{estData.subNotes}</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-400 italic">Not submitted yet</p>
+                )}
+              </div>
+            </div>
+            {estData.builder && estData.sub && (
+              <div className={`mt-2.5 p-2.5 rounded-xl text-xs font-semibold text-center ${
+                estData.sub > estData.builder
+                  ? 'bg-red-100 text-red-700'
+                  : estData.sub < estData.builder
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-gray-100 text-gray-600'
+              }`}>
+                {estData.sub > estData.builder
+                  ? `⚠️ Over budget by $${Math.round(estData.sub - estData.builder).toLocaleString()}`
+                  : estData.sub < estData.builder
+                  ? `✅ Under budget by $${Math.round(estData.builder - estData.sub).toLocaleString()}`
+                  : '✅ Exactly on budget'}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Sub's Reported Schedule */}
+        {estData?.subSchedule && Object.keys(estData.subSchedule).length > 0 && (
+          <div className="card p-4">
+            <label className="block text-xs font-semibold text-gray-500 mb-3">📅 SUB'S REPORTED SCHEDULE</label>
+            <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+              {Object.entries(estData.subSchedule)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([date, times]: [string, any]) => (
+                <div key={date} className="flex items-center justify-between py-1.5 px-3 bg-blue-50 rounded-xl">
+                  <span className="text-xs font-medium text-blue-700">
+                    {format(parseISO(date), 'EEE, MMM d')}
+                  </span>
+                  <span className="text-xs text-blue-600 font-medium">{times.start} – {times.end}</span>
+                </div>
+              ))}
+            </div>
+            {estData.subScheduleNotes && (
+              <p className="text-xs text-gray-500 mt-2 bg-gray-50 rounded-xl p-2.5">{estData.subScheduleNotes}</p>
+            )}
+          </div>
+        )}
 
         {/* Subcontractor Module */}
         <div className="card p-4">

@@ -78,6 +78,7 @@ export default function SubPortal() {
   const [tasks,         setTasks]         = useState<any[]>([])
   const [messages,      setMessages]      = useState<PortalMessage[]>([])
   const [estimates,     setEstimates]     = useState<Estimate[]>([])
+  const [allTasks,      setAllTasks]      = useState<any[]>([])
   const [taskFiles,     setTaskFiles]     = useState<Record<string,any[]>>({})
   const [taskStatus,    setTaskStatus]    = useState<Record<string,string>>({})
   const [taskDates,     setTaskDates]     = useState<Record<string,{start:string;end:string}>>({})
@@ -98,9 +99,11 @@ export default function SubPortal() {
   const [estAmt,        setEstAmt]        = useState('')
   const [estNotes,      setEstNotes]      = useState('')
   const [estTaskId,     setEstTaskId]     = useState('')
-  const [estScope,      setEstScope]      = useState<'project'|'task'>('project')
+  const [estScope,      setEstScope]      = useState<'project'|'task'>('task')
   const [saving,        setSaving]        = useState(false)
-  const [savedDates,    setSavedDates]    = useState(false)
+  const [savedTask,     setSavedTask]     = useState<Record<string,boolean>>({})
+  const [statusSaving,  setStatusSaving]  = useState<Record<string,boolean>>({})
+  const [statusSaved,   setStatusSaved]   = useState<Record<string,boolean>>({})
   const [sendingMsg,    setSendingMsg]    = useState(false)
   const [sendingReport, setSendingReport] = useState(false)
   const [submittingEst, setSubmittingEst] = useState(false)
@@ -123,13 +126,17 @@ export default function SubPortal() {
       setProject(d.project)
       setSub(d.sub)
       setTasks(d.tasks||[])
+      setAllTasks(d.allTasks||d.tasks||[])
       setMessages(d.messages||[])
       reloadFiles(d.files||[])
 
+      const VALID_SUB_STATUSES = new Set(['in_progress','completed','pending','delayed','fail_inspection'])
       const statusMap:Record<string,string> = {}
       const datesMap:Record<string,{start:string;end:string}> = {}
       ;(d.tasks||[]).forEach((t:any)=>{
-        statusMap[t.id] = t.sub_status || t.status || 'pending'
+        const raw = t.status || 'pending'
+        // 'active' is the builder default — map to in_progress so sub portal shows correctly
+        statusMap[t.id] = VALID_SUB_STATUSES.has(raw) ? raw : 'in_progress'
         datesMap[t.id]  = { start: t.sub_start_date||'', end: t.sub_end_date||'' }
       })
       setTaskStatus(statusMap)
@@ -150,18 +157,36 @@ export default function SubPortal() {
 
   useEffect(()=>{ loadPortal() },[])
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:'smooth'}) },[messages])
+  // Auto-select first task when allTasks loads so scope=task always has a valid default
+  useEffect(()=>{ if (allTasks.length > 0) setEstTaskId(prev => prev || allTasks[0].id) },[allTasks])
 
   /* ── handlers ────────────────────────────────────────────────────────── */
-  async function updateStatus(taskId:string, val:string) {
+  // Just update local state — user must click "Save Status" to persist
+  function selectStatus(taskId:string, val:string) {
     setTaskStatus(p=>({...p,[taskId]:val}))
-    await fetch(base,{method:'PATCH',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'update_task_status',task_id:taskId,status:val})})
-    // notify KORVIA so it updates the project timeline
-    const task = tasks.find((t:any)=>t.id===taskId)
-    const stLabel = STATUS_OPTIONS.find(s=>s.value===val)?.label||val
-    await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'send_message',
-        content:`📋 Task status update: "${task?.name||taskId}" → ${stLabel}. Please update the project timeline.`})})
+    setTasks((prev:any[])=>prev.map(t=>t.id===taskId?{...t,status:val}:t))
+  }
+
+  async function saveStatus(taskId:string) {
+    const val = taskStatus[taskId]
+    if (!val) return
+    setStatusSaving(p=>({...p,[taskId]:true}))
+    try {
+      const res = await fetch(base,{method:'PATCH',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({task_id:taskId,status:val})})
+      if (res.ok) {
+        setStatusSaved(p=>({...p,[taskId]:true}))
+        setTimeout(()=>setStatusSaved(p=>({...p,[taskId]:false})),2500)
+        // Fire-and-forget KORVIA message
+        const task = tasks.find((t:any)=>t.id===taskId)
+        const stLabel = STATUS_OPTIONS.find(s=>s.value===val)?.label||val
+        fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'send_message',
+            content:`📋 Status updated: "${task?.name||taskId}" → ${stLabel}. Builder notified.`})
+        }).catch(()=>{})
+      }
+    } catch {}
+    setStatusSaving(p=>({...p,[taskId]:false}))
   }
 
   async function saveDates(taskId:string) {
@@ -169,26 +194,60 @@ export default function SubPortal() {
     const {start,end} = taskDates[taskId]||{}
     await fetch(base,{method:'PATCH',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'update_dates',task_id:taskId,sub_start_date:start,sub_end_date:end})})
-    setSaving(false); setSavedDates(true)
-    setTimeout(()=>setSavedDates(false),2000)
+    // Also notify KORVIA so the timeline updates immediately
+    const task = tasks.find((t:any)=>t.id===taskId)
+    if (start || end) {
+      await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'send_message',
+          content:`📅 Date update for "${task?.name||taskId}": ${start||'TBD'} → ${end||'TBD'}. Please update the project timeline.`})})
+    }
+    setSaving(false)
+    setSavedTask(p=>({...p,[taskId]:true}))
+    setTimeout(()=>setSavedTask(p=>({...p,[taskId]:false})),2500)
   }
 
   async function handleUpload(taskId:string, file:File) {
     setUploading(p=>({...p,[taskId]:true}))
-    const desc = uploadDesc[taskId]||''
-    const fd = new FormData()
-    fd.append('file',file); fd.append('task_id',taskId)
-    if (desc) fd.append('description',desc)
-    await fetch(`${base}/upload`,{method:'POST',body:fd})
-    // notify KORVIA about the upload so it can process the evidence
-    if (desc) {
-      const task = tasks.find((t:any)=>t.id===taskId)
-      await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          action:'send_message',
-          content:`📎 Evidence uploaded for task "${task?.name||taskId}": ${desc} [File: ${file.name}]`,
-        })})
+    const desc     = uploadDesc[taskId]||''
+    const fileId   = crypto.randomUUID()
+    const category = file.type.startsWith('image/') ? 'sub_photo' : 'sub_document'
+
+    try {
+      // Step 1 — get signed upload URL (no file sent to Vercel)
+      const signRes = await fetch(`${base}/upload`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ fileId, filename: file.name, contentType: file.type,
+          size: file.size, task_id: taskId, category, notes: desc||null }),
+      })
+      const signData = await signRes.json()
+      if (!signRes.ok || !signData.signedUrl) throw new Error(signData.error ?? 'Could not get upload URL')
+
+      // Step 2 — upload directly to Supabase Storage (bypasses Vercel 4.5MB limit)
+      const putRes = await fetch(signData.signedUrl, {
+        method: 'PUT', headers: {'Content-Type': file.type}, body: file,
+      })
+      if (!putRes.ok) throw new Error(`Storage upload failed: ${putRes.status}`)
+
+      // Step 3 — confirm: record in bf_project_files
+      await fetch(`${base}/upload/confirm`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ fileId: signData.fileId, path: signData.path,
+          filename: file.name, contentType: file.type, size: file.size,
+          task_id: taskId, category, notes: desc||null }),
+      })
+
+      // Notify KORVIA (fire-and-forget)
+      if (desc) {
+        const task = tasks.find((t:any)=>t.id===taskId)
+        fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'send_message',
+            content:`📎 Evidence uploaded for task "${task?.name||taskId}": ${desc} [File: ${file.name}]`})
+        }).catch(()=>{})
+      }
+    } catch (err) {
+      console.error('[handleUpload]', err)
     }
+
     const r = await fetch(base)
     if (r.ok) { const d=await r.json(); reloadFiles(d.files||[]); setMessages(d.messages||[]) }
     setUploadDesc(p=>({...p,[taskId]:''}))
@@ -251,9 +310,10 @@ export default function SubPortal() {
 
   async function submitEstimate() {
     if (!estAmt) return
+    if (estScope === 'task' && !estTaskId) return   // must pick a task when scope=task
     setSubmittingEst(true)
     await fetch(`${base}/estimate`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({type:estScope,task_id:estScope==='task'?estTaskId:null,amount:estAmt,notes:estNotes})})
+      body:JSON.stringify({type:estScope,task_id:estScope==='task'?estTaskId:null,amount:Number(estAmt),notes:estNotes})})
     const er = await fetch(`${base}/estimate`)
     if (er.ok) { const ed=await er.json(); setEstimates(ed.estimates||[]) }
     // notify KORVIA for timeline/budget update
@@ -687,13 +747,23 @@ export default function SubPortal() {
                     <label className={labelCls}>Update Status</label>
                     <div className="flex flex-wrap gap-2 mt-1">
                       {STATUS_OPTIONS.map(opt=>(
-                        <button key={opt.value} onClick={()=>updateStatus(task.id,opt.value)}
+                        <button key={opt.value} onClick={()=>selectStatus(task.id,opt.value)}
                           className={`text-xs px-2.5 py-1.5 rounded-xl border transition
                             ${st===opt.value?opt.cls+' ring-2 ring-offset-1 ring-offset-[#0f1e35] ring-current':'bg-white/5 border-white/15 text-white/60 hover:bg-white/10'}`}>
                           {opt.label}
                         </button>
                       ))}
                     </div>
+                    <button onClick={()=>saveStatus(task.id)}
+                      disabled={statusSaving[task.id]}
+                      className={`mt-2 w-full text-xs py-2 rounded-xl border font-semibold transition
+                        ${statusSaved[task.id]
+                          ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                          : statusSaving[task.id]
+                            ? 'bg-white/5 border-white/15 text-white/40 cursor-not-allowed'
+                            : 'bg-blue-500/20 border-blue-400 text-blue-300 hover:bg-blue-500/30'}`}>
+                      {statusSaved[task.id] ? '✓ Status Saved & KORVIA Notified!' : statusSaving[task.id] ? 'Saving…' : 'Save Status 💾'}
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -711,7 +781,7 @@ export default function SubPortal() {
                     </div>
                   </div>
                   <button onClick={()=>saveDates(task.id)} disabled={saving} className={btnPrimary}>
-                    {saving?'Saving…':savedDates?'✓ Saved!':'Save My Dates'}
+                    {savedTask[task.id]?'✓ Dates Saved & KORVIA Notified!':saving?'Saving…':'Save My Dates 💾'}
                   </button>
 
                   {/* ── EVIDENCE UPLOAD ── */}
@@ -838,14 +908,18 @@ export default function SubPortal() {
                   </div>
                 </div>
 
-                {estScope==='task' && tasks.length>0 && (
+                {estScope==='task' && (
                   <div>
                     <label className={labelCls}>Task</label>
-                    <select value={estTaskId} onChange={e=>setEstTaskId(e.target.value)}
-                      className={inputCls}>
-                      <option value="">Select task…</option>
-                      {tasks.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
-                    </select>
+                    {allTasks.length > 0 ? (
+                      <select value={estTaskId} onChange={e=>setEstTaskId(e.target.value)}
+                        className={inputCls}>
+                        <option value="" disabled>Select task…</option>
+                        {allTasks.map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    ) : (
+                      <p className="text-white/40 text-xs mt-1">No tasks found for this project</p>
+                    )}
                   </div>
                 )}
 
@@ -861,7 +935,7 @@ export default function SubPortal() {
                     onChange={e=>setEstNotes(e.target.value)} className={inputCls}/>
                 </div>
 
-                <button onClick={submitEstimate} disabled={submittingEst||!estAmt} className={btnPrimary}>
+                <button onClick={submitEstimate} disabled={submittingEst||!estAmt||(estScope==='task'&&!estTaskId)} className={btnPrimary}>
                   {submittingEst?'Submitting…':'Submit Estimate 💰'}
                 </button>
               </div>
