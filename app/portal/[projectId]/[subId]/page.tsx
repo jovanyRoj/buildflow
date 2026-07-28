@@ -157,6 +157,17 @@ export default function SubPortal() {
 
   useEffect(()=>{ loadPortal() },[])
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:'smooth'}) },[messages])
+
+  // Poll messages every 30s so sub sees KORVIA notifications without refresh
+  useEffect(()=>{
+    const iv = setInterval(()=>{
+      fetch(`/api/portal/${projectId}/${subId}`)
+        .then(r=>r.ok?r.json():null)
+        .then(d=>{ if(d?.messages) setMessages(d.messages) })
+        .catch(()=>{})
+    }, 30000)
+    return ()=>clearInterval(iv)
+  },[projectId, subId])
   // Auto-select first task when allTasks loads so scope=task always has a valid default
   useEffect(()=>{ if (allTasks.length > 0) setEstTaskId(prev => prev || allTasks[0].id) },[allTasks])
 
@@ -742,6 +753,23 @@ export default function SubPortal() {
                     </div>
                     <Pill label={stOpt.label} cls={stOpt.cls}/>
                   </div>
+
+                  {/* ── Builder agreed amount banner ── */}
+                  {task.sub_approved_amount != null && (
+                    <div className="bg-emerald-500/15 border border-emerald-400/30 rounded-2xl p-3">
+                      <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide mb-0.5">💰 Monto Acordado por el Builder</p>
+                      <p className="text-xl font-extrabold text-emerald-300">{fmtMoney(task.sub_approved_amount)}</p>
+                      {task.sub_quoted_cost != null && task.sub_approved_amount !== task.sub_quoted_cost && (
+                        <p className="text-[10px] text-emerald-400/70 mt-1">
+                          Tu cotización: {fmtMoney(task.sub_quoted_cost)}{' · '}
+                          {task.sub_approved_amount < task.sub_quoted_cost ? '⬇ Negociado a la baja' : '⬆ Ajustado al alza'}
+                        </p>
+                      )}
+                      {task.sub_quoted_cost != null && task.sub_approved_amount === task.sub_quoted_cost && (
+                        <p className="text-[10px] text-emerald-400/70 mt-1">✅ Igual a tu cotización original</p>
+                      )}
+                    </div>
+                  )}
 
                   <div>
                     <label className={labelCls}>Update Status</label>

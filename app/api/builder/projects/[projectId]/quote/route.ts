@@ -436,11 +436,33 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     }
 
     // ── Insert into bf_portal_messages → shows in sub portal + builder Messages panel ──
-    if (sub_id) {
+    // Resolve sub_id: if not provided, look up by phone in bf_subcontractors
+    let resolvedSubId = sub_id ?? null
+    if (!resolvedSubId && sub_phone) {
+      try {
+        const { data: foundSub } = await supabaseAdmin
+          .from('bf_subcontractors')
+          .select('id')
+          .eq('project_id', projectId)
+          .eq('phone', sub_phone)
+          .maybeSingle()
+        resolvedSubId = foundSub?.id ?? null
+      } catch {}
+    }
+    if (resolvedSubId) {
+      // Also persist approved_amount now that we have the real sub_id
+      if (task_id && !sub_id) {
+        try {
+          await supabaseAdmin.from('bf_sub_budgets').upsert(
+            { project_id: projectId, task_id, sub_id: resolvedSubId, approved_amount: agreed_amount, payment_status: 'pending' },
+            { onConflict: 'task_id,sub_id' }
+          )
+        } catch {}
+      }
       try {
         await supabaseAdmin.from('bf_portal_messages').insert({
           project_id: projectId,
-          sub_id,
+          sub_id: resolvedSubId,
           sender: 'korvia',
           content: msgContent,
         })

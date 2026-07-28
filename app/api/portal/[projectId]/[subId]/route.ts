@@ -85,21 +85,26 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     // Fetch existing sub budgets (quoted costs) for this sub
     const taskIds = tasks.map((t: any) => t.id)
     let subBudgets: Record<string, number> = {}
+    let subApproved: Record<string, number> = {}
     if (taskIds.length > 0) {
       const { data: budgets } = await supabaseAdmin
         .from('bf_sub_budgets')
-        .select('task_id, quoted_amount')
+        .select('task_id, quoted_amount, approved_amount')
         .eq('sub_id', subId)
         .in('task_id', taskIds)
       for (const b of budgets ?? []) {
-        if (b.task_id && b.quoted_amount) subBudgets[b.task_id] = b.quoted_amount
+        if (b.task_id) {
+          if (b.quoted_amount != null)  subBudgets[b.task_id]  = b.quoted_amount
+          if (b.approved_amount != null) subApproved[b.task_id] = b.approved_amount
+        }
       }
     }
 
     // Merge quoted cost into task objects
     const enrichedTasks = tasks.map((t: any) => ({
       ...t,
-      sub_quoted_cost: subBudgets[t.id] ?? null,
+      sub_quoted_cost:    subBudgets[t.id]  ?? null,
+      sub_approved_amount: subApproved[t.id] ?? null,
     }))
 
     // Fetch portal messages
