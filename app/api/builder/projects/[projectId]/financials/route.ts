@@ -26,10 +26,11 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   // Sub estimates
   const { data: subBudgets } = await supabaseAdmin
     .from('bf_sub_budgets')
-    .select('task_id, sub_id, quoted_amount, approved_amount, payment_status, builder_notes')
+    .select('task_id, sub_id, quoted_amount, approved_amount, sub_proposed_amount, payment_status, builder_notes')
     .eq('project_id', projectId)
   const totalSubQuoted   = (subBudgets ?? []).reduce((s, b) => s + (b.quoted_amount  ?? 0), 0)
-  const totalSubApproved = (subBudgets ?? []).reduce((s, b) => s + (b.approved_amount ?? 0), 0)
+  const totalSubApproved  = (subBudgets ?? []).reduce((s, b) => s + (b.approved_amount ?? 0), 0)
+  const totalSubProposed  = (subBudgets ?? []).reduce((s, b) => s + (b.sub_proposed_amount ?? 0), 0)
 
   // Materials
   const { data: mats } = await supabaseAdmin
@@ -69,6 +70,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       dailyInterestCost:   Math.round(dailyInterestCost * 100) / 100,
       totalSubQuoted,
       totalSubApproved,
+      totalSubProposed,
       totalMaterials:      Math.round(totalMaterials * 100) / 100,
       projectedMargin: data
         ? (data.sale_price_projected ?? 0) - (data.construction_cost_budget ?? 0) - interestAccrued

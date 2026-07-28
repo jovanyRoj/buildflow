@@ -29,7 +29,7 @@ type UrgencyValue = 'low'|'medium'|'high'|'emergency'
 
 /* ─── interfaces ─────────────────────────────────────────────────────────── */
 interface PortalMessage { id:string; sender:'sub'|'korvia'; content:string; created_at:string }
-interface Estimate { id?:string; type:'project'|'task'; task_id?:string; amount:string; notes:string; approved_amount?:number|null }
+interface Estimate { id?:string; type:'project'|'task'; task_id?:string; amount:string; notes:string; approved_amount?:number|null; sub_proposed_amount?:number|null; sub_proposed_at?:string|null }
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 function mapsUrl(addr:string) {
@@ -107,6 +107,9 @@ export default function SubPortal() {
   const [sendingMsg,    setSendingMsg]    = useState(false)
   const [sendingReport, setSendingReport] = useState(false)
   const [submittingEst, setSubmittingEst] = useState(false)
+  const [counterInput,   setCounterInput]   = useState<Record<string, string>>({})
+  const [submittingCounter, setSubmittingCounter] = useState<Record<string, boolean>>({})
+  const [counterSent,    setCounterSent]    = useState<Record<string, boolean>>({})
   const msgEndRef = useRef<HTMLDivElement>(null)
 
   const base = `/api/portal/${projectId}/${subId}`
@@ -307,6 +310,26 @@ export default function SubPortal() {
     setReportType(''); setReportTask(''); setReportDesc(''); setReportUrgency('medium')
     setSendingReport(false)
     alert('Report submitted. The builder will be notified.')
+  }
+
+  async function submitCounter(estimate: Estimate) {
+    const eId = estimate.id ?? estimate.task_id ?? ''
+    const val  = counterInput[eId]
+    if (!val || !estimate.task_id) return
+    setSubmittingCounter(p => ({ ...p, [eId]: true }))
+    try {
+      const r = await fetch(`${base}/estimate`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: estimate.task_id, proposed_amount: parseFloat(val) }),
+      })
+      if (r.ok) {
+        setCounterSent(p => ({ ...p, [eId]: true }))
+        const er = await fetch(`${base}/estimate`)
+        if (er.ok) { const ed = await er.json(); setEstimates(ed.estimates || []) }
+      }
+    } catch (_) {}
+    setSubmittingCounter(p => ({ ...p, [eId]: false }))
   }
 
   async function askKorviaFn(taskId:string) {
@@ -974,11 +997,16 @@ export default function SubPortal() {
                 <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-3">📋 Tu Historial de Estimados</p>
                 <div className="space-y-3">
                   {estimates.map((e,i)=>{
-                    const t        = allTasks.find((x:any)=>x.id===e.task_id)
-                    const hasAgreed = e.approved_amount != null
-                    const subAmt    = parseFloat(e.amount) || 0
-                    const agreedAmt = e.approved_amount ?? 0
-                    const diff      = hasAgreed ? agreedAmt - subAmt : null
+                    const t          = allTasks.find((x:any)=>x.id===e.task_id)
+                    const hasAgreed  = e.approved_amount != null
+                    const hasCounter = e.sub_proposed_amount != null
+                    const subAmt     = parseFloat(e.amount) || 0
+                    const agreedAmt  = e.approved_amount ?? 0
+                    const counterAmt = e.sub_proposed_amount ?? 0
+                    const diff       = hasAgreed ? agreedAmt - subAmt : null
+                    const eId        = e.id ?? e.task_id ?? String(i)
+                    const isSending  = submittingCounter[eId]
+                    const wasSent    = counterSent[eId]
                     return (
                       <div key={e.id||i} className="bg-white/5 rounded-2xl border border-white/10 p-3 space-y-2.5">
 
@@ -990,15 +1018,23 @@ export default function SubPortal() {
                           </span>
                         </div>
 
-                        {/* Side-by-side comparison */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="bg-white/5 rounded-xl p-2.5 text-center">
+                        {/* Three-way comparison: Tu cotización · Tu propuesta · Builder */}
+                        <div className={`grid gap-2 ${hasCounter || hasAgreed ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                          <div className="bg-white/5 rounded-xl p-2 text-center">
                             <p className="text-[9px] font-bold text-white/40 uppercase tracking-wide mb-0.5">Tu Cotización</p>
-                            <p className="text-base font-extrabold text-white">{fmtMoney(subAmt)}</p>
+                            <p className="text-sm font-extrabold text-white">{fmtMoney(subAmt)}</p>
                           </div>
-                          <div className={`rounded-xl p-2.5 text-center border ${hasAgreed ? 'bg-emerald-500/15 border-emerald-400/25' : 'bg-white/5 border-white/10'}`}>
+                          {(hasCounter || hasAgreed) && (
+                            <div className={`rounded-xl p-2 text-center border ${hasCounter ? 'bg-blue-500/15 border-blue-400/25' : 'bg-white/5 border-white/10'}`}>
+                              <p className="text-[9px] font-bold text-white/40 uppercase tracking-wide mb-0.5">Tu Propuesta</p>
+                              <p className={`text-sm font-extrabold ${hasCounter ? 'text-blue-300' : 'text-white/20'}`}>
+                                {hasCounter ? fmtMoney(counterAmt) : '—'}
+                              </p>
+                            </div>
+                          )}
+                          <div className={`rounded-xl p-2 text-center border ${hasAgreed ? 'bg-emerald-500/15 border-emerald-400/25' : 'bg-white/5 border-white/10'}`}>
                             <p className="text-[9px] font-bold text-white/40 uppercase tracking-wide mb-0.5">Builder Acordó</p>
-                            <p className={`text-base font-extrabold ${hasAgreed ? 'text-emerald-300' : 'text-white/20'}`}>
+                            <p className={`text-sm font-extrabold ${hasAgreed ? 'text-emerald-300' : 'text-white/20'}`}>
                               {hasAgreed ? fmtMoney(agreedAmt) : '—'}
                             </p>
                           </div>
@@ -1015,6 +1051,48 @@ export default function SubPortal() {
                         {hasAgreed && diff === 0 && (
                           <div className="text-center py-1.5 rounded-xl text-[10px] font-bold bg-emerald-500/10 text-emerald-300">
                             ✅ Monto aceptado exactamente como cotizaste
+                          </div>
+                        )}
+
+                        {/* Counter-proposal section — only for task estimates, not yet agreed */}
+                        {e.task_id && !hasAgreed && (
+                          <div className="bg-blue-500/8 border border-blue-400/20 rounded-xl p-3 space-y-2">
+                            <p className="text-[10px] font-bold text-blue-300 uppercase tracking-wide">
+                              💬 {hasCounter ? 'Tu propuesta enviada' : 'Proponer monto alternativo'}
+                            </p>
+                            {hasCounter && !wasSent ? (
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-blue-200 text-sm font-bold">{fmtMoney(counterAmt)}</p>
+                                <span className="text-[10px] text-yellow-300 bg-yellow-500/15 px-2 py-0.5 rounded-full">⏳ Esperando respuesta</span>
+                              </div>
+                            ) : null}
+                            {(!hasCounter || wasSent) && (
+                              <div className="space-y-2">
+                                {wasSent && (
+                                  <div className="text-[10px] text-emerald-300 font-semibold">✅ Propuesta enviada al builder</div>
+                                )}
+                                <div className="flex gap-2 items-center">
+                                  <div className="relative flex-1">
+                                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-white/40">$</span>
+                                    <input type="number" min="0" placeholder={String(subAmt || '')}
+                                      value={counterInput[eId] ?? ''}
+                                      onChange={ev=>setCounterInput(p=>({...p,[eId]:ev.target.value}))}
+                                      className="w-full pl-5 pr-2 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm font-semibold placeholder:text-white/25 focus:outline-none focus:border-blue-400"/>
+                                  </div>
+                                  <button
+                                    onClick={()=>setCounterInput(p=>({...p,[eId]:String(subAmt)}))}
+                                    className="shrink-0 text-[10px] px-2 py-2 rounded-lg bg-white/10 text-white/60 hover:bg-white/15 border border-white/10 transition">
+                                    Usar mi cotiz.
+                                  </button>
+                                </div>
+                                <button onClick={()=>submitCounter(e)}
+                                  disabled={isSending || !counterInput[eId]}
+                                  className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition disabled:opacity-40">
+                                  {isSending ? 'Enviando…' : '📤 Proponer este monto al builder'}
+                                </button>
+                                <p className="text-[10px] text-white/30 text-center">KORVIA notificará al builder con tu propuesta</p>
+                              </div>
+                            )}
                           </div>
                         )}
 

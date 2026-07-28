@@ -41,14 +41,14 @@ interface Financials {
 }
 interface Computed {
   interestAccrued: number; dailyInterestCost: number
-  totalSubQuoted: number; totalSubApproved: number; totalMaterials: number
+  totalSubQuoted: number; totalSubApproved: number; totalSubProposed: number; totalMaterials: number
   projectedMargin: number
   sqftConstructionCost: number|null; sqftSalePrice: number|null
   sqftMargin: number|null; realMargin: number|null; realMarginPct: number|null
 }
 interface SubBudget {
   task_id: string; sub_id: string; quoted_amount?: number
-  approved_amount?: number; payment_status: string
+  approved_amount?: number; sub_proposed_amount?: number; payment_status: string
 }
 
 // Returns updated form fields when sqft inputs change (auto-populates budget & sale)
@@ -309,15 +309,35 @@ export default function FinancesPage() {
                     const isPaid    = sb.payment_status === 'paid'
                     const isPartial = sb.payment_status === 'partial'
                     return (
-                      <div key={i} className={`flex items-center justify-between p-3 rounded-xl border ${isPaid ? 'bg-green-50 border-green-100' : isPartial ? 'bg-yellow-50 border-yellow-100' : 'bg-gray-50 border-gray-100'}`}>
-                        <div>
-                          <p className="text-xs font-semibold text-gray-700">Task #{sb.task_id.slice(-4)}</p>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PAY[sb.payment_status] ?? PAY.pending}`}>{sb.payment_status}</span>
+                      <div key={i} className={`p-3 rounded-xl border space-y-1.5 ${isPaid ? 'bg-green-50 border-green-100' : isPartial ? 'bg-yellow-50 border-yellow-100' : 'bg-gray-50 border-gray-100'}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-700">Task #{sb.task_id.slice(-4)}</p>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PAY[sb.payment_status] ?? PAY.pending}`}>{sb.payment_status}</span>
+                          </div>
+                          <div className="text-right">
+                            <p className={`text-sm font-bold ${isPaid ? 'text-green-600' : 'text-gray-800'}`}>{fmt(sb.quoted_amount)}</p>
+                            {sb.approved_amount && <p className="text-xs text-emerald-600 font-semibold">✅ Acordado: {fmt(sb.approved_amount)}</p>}
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className={`text-sm font-bold ${isPaid ? 'text-green-600' : 'text-gray-800'}`}>{fmt(sb.quoted_amount)}</p>
-                          {sb.approved_amount && <p className="text-xs text-green-600">✓ {fmt(sb.approved_amount)}</p>}
-                        </div>
+                        {/* Sub counter-proposal + KORVIA insight */}
+                        {sb.sub_proposed_amount != null && (
+                          <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1.5">
+                            <div>
+                              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-wide">💬 Sub propone</p>
+                              <p className="text-xs font-bold text-blue-700">{fmt(sb.sub_proposed_amount)}</p>
+                            </div>
+                            {!sb.approved_amount && sb.quoted_amount && sb.sub_proposed_amount && (() => {
+                              const mid = Math.round((sb.quoted_amount + sb.sub_proposed_amount) / 2)
+                              return (
+                                <div className="text-right">
+                                  <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-wide">🤖 KORVIA sugiere</p>
+                                  <p className="text-xs font-bold text-indigo-700">{fmt(mid)}</p>
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        )}
                       </div>
                     )
                   })}

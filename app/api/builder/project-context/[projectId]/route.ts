@@ -40,15 +40,20 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
   // Sub real estimates from bf_sub_budgets (set via portal quote flow)
   const subBudgetMap: Record<string, number> = {}
+  let subProposedMap: Record<string, number> = {}
   if (taskIds.length > 0) {
     const { data: subB } = await supabaseAdmin
       .from('bf_sub_budgets')
-      .select('task_id, quoted_amount')
+      .select('task_id, quoted_amount, sub_proposed_amount')
       .eq('project_id', projectId)
       .in('task_id', taskIds)
+    subProposedMap = {}
     for (const b of subB ?? []) {
       if (b.task_id && subBudgetMap[b.task_id] === undefined) {
         subBudgetMap[b.task_id] = b.quoted_amount
+      }
+      if (b.task_id && b.sub_proposed_amount != null) {
+        subProposedMap[b.task_id] = b.sub_proposed_amount
       }
     }
   }
@@ -129,6 +134,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       sub_company: sub?.company ?? task.assigned_to ?? null,
       sub_schedule: sub?.sub_date_schedule ?? null,
       sub_schedule_notes: sub?.sub_schedule_notes ?? null,
+      sub_proposed_amount: subProposedMap[task.id] ?? null,
     }
   })
 

@@ -300,7 +300,7 @@ export default function QuotePage() {
     return kws
   }
 
-  function getPhaseSubData(phaseName: string): { company: string; amount: number; taskName?: string }[] {
+  function getPhaseSubData(phaseName: string): { company: string; amount: number; taskName?: string; subProposedAmount?: number|null }[] {
     // ── Helpers ──────────────────────────────────────────────────────────────
     // Strip accents so "topógrafo" ↔ "topográfico" share the same root prefix
     const norm = (s: string) =>
@@ -327,7 +327,7 @@ export default function QuotePage() {
     const phaseKeys = [...new Set(prefixKeys(phaseName))]
     if (!phaseKeys.length) return []
 
-    const results: { company: string; amount: number; taskName?: string }[] = []
+    const results: { company: string; amount: number; taskName?: string; subProposedAmount?: number|null }[] = []
     const seen = new Set<string>()
 
     // Primary: match subTasks by task name (phase-specific root overlap)
@@ -335,7 +335,7 @@ export default function QuotePage() {
       if (overlaps(phaseKeys, prefixKeys(t.name ?? ''))) {
         const company = t.sub_company || t.assigned_to || '—'
         const key = norm(company)
-        if (!seen.has(key)) { seen.add(key); results.push({ company, amount: t.subAmt ?? 0, taskName: t.name }) }
+        if (!seen.has(key)) { seen.add(key); results.push({ company, amount: t.subAmt ?? 0, taskName: t.name, subProposedAmount: t.subProposedAmount ?? null }) }
       }
     }
 
@@ -345,7 +345,7 @@ export default function QuotePage() {
       if (!seen.has(cl) && (overlaps(phaseKeys, prefixKeys(sub.trade ?? '')) || overlaps(phaseKeys, prefixKeys(sub.company ?? '')))) {
         seen.add(cl)
         const linked = subTasks.find(t => t.subcontractor_phone === sub.phone)
-        results.push({ company: sub.company, amount: linked?.subAmt ?? 0, taskName: linked?.name })
+        results.push({ company: sub.company, amount: linked?.subAmt ?? 0, taskName: linked?.name, subProposedAmount: linked?.subProposedAmount ?? null })
       }
     }
     return results
@@ -383,7 +383,7 @@ export default function QuotePage() {
             setSubTasks(
               d.tasks
                 .filter((t: any) => !!(t.assigned_to || t.subcontractor_phone))
-                .map((t: any) => ({ ...t, builderAmt: t.builder_estimate?.amount ?? 0, subAmt: t.sub_estimate?.amount ?? 0 }))
+                .map((t: any) => ({ ...t, builderAmt: t.builder_estimate?.amount ?? 0, subAmt: t.sub_estimate?.amount ?? 0, subProposedAmount: t.sub_proposed_amount ?? null }))
             )
             setRegisteredSubs(d.subs ?? [])
           })
@@ -864,6 +864,20 @@ export default function QuotePage() {
                           {/* Negotiation */}
                           <div className="bg-white rounded-xl border border-indigo-100 p-2.5">
                             <p className="text-[10px] font-bold text-indigo-500 mb-1.5">🤖 KORVIA — Monto negociado con sub</p>
+                            {/* Sub counter-proposal banner */}
+                            {s.subProposedAmount != null && (
+                              <div className="mb-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-[9px] font-bold text-blue-400 uppercase tracking-wide">💬 Sub propone</p>
+                                  <p className="text-sm font-extrabold text-blue-700">{fmt(s.subProposedAmount)}</p>
+                                </div>
+                                <button
+                                  onClick={() => setSubNegotiate(p => ({ ...p, [phase.id]: String(s.subProposedAmount) }))}
+                                  className="text-[10px] px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 transition shrink-0">
+                                  Usar propuesta
+                                </button>
+                              </div>
+                            )}
                             <div className="flex gap-2">
                               <div className="relative flex-1">
                                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>

@@ -7,7 +7,6 @@ type Ctx = { params: Promise<{ projectId: string; subId: string }> }
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const { projectId, subId } = await params
 
-  // Verify sub belongs to project
   const { data: sub } = await supabaseAdmin
     .from('bf_subcontractors').select('phone').eq('id', subId).single()
   if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -19,28 +18,98 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     .eq('sub_phone', sub.phone)
     .order('created_at', { ascending: false })
 
-  // Enrich with approved_amount from bf_sub_budgets (builder-negotiated amount)
   const taskIds = (estimates ?? []).filter((e: any) => e.task_id).map((e: any) => e.task_id)
   const approvedMap: Record<string, number> = {}
+  const proposedMap: Record<string, number> = {}
+  const proposedAtMap: Record<string, string> = {}
+
   if (taskIds.length > 0) {
     const { data: budgets } = await supabaseAdmin
       .from('bf_sub_budgets')
-      .select('task_id, approved_amount')
+      .select('task_id, approved_amount, sub_proposed_amount, sub_proposed_at')
       .eq('sub_id', subId)
       .in('task_id', taskIds)
+
     for (const b of budgets ?? []) {
-      if (b.task_id && b.approved_amount != null) {
-        approvedMap[b.task_id] = b.approved_amount
-      }
+      if (!b.task_id) continue
+      if (b.approved_amount != null)     approvedMap[b.task_id]   = b.approved_amount
+      if (b.sub_proposed_amount != null) proposedMap[b.task_id]   = b.sub_proposed_amount
+      if (b.sub_proposed_at)             proposedAtMap[b.task_id] = b.sub_proposed_at
     }
   }
 
   const enriched = (estimates ?? []).map((e: any) => ({
     ...e,
-    approved_amount: e.task_id ? (approvedMap[e.task_id] ?? null) : null,
+    approved_amount:     e.task_id ? (approvedMap[e.task_id]   ?? null) : null,
+    sub_proposed_amount: e.task_id ? (proposedMap[e.task_id]   ?? null) : null,
+    sub_proposed_at:     e.task_id ? (proposedAtMap[e.task_id] ?? null) : null,
   }))
 
   return NextResponse.json({ estimates: enriched })
+}
+
+// ── PATCH — sub submits counter-proposal ──────────────────────────────────
+export async function PATCH(req: NextRequest, { params }: Ctx) {
+  const { projectId, subId } = await params
+  const body = await req.json()
+  const { task_id, proposed_amount } = body as {
+    task_id: string; proposed_amount: number
+  }
+
+  if (!task_id || proposed_amount == null) {
+    return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+  }
+
+  const { data: sub } = await supabaseAdmin
+    .from('bf_subcontractors').select('phone, company, name').eq('id', subId).single()
+  if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const company = (sub as any).company || (sub as any).name || (sub as any).phone
+
+  // Upsert sub_proposed_amount into bf_sub_budgets
+  const now = new Date().toISOString()
+  const { data: existing } = await supabaseAdmin
+    .from('bf_sub_budgets')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('task_id', task_id)
+    .eq('sub_id', subId)
+    .maybeSingle()
+
+  if (existing?.id) {
+    await supabaseAdmin.from('bf_sub_budgets')
+      .update({ sub_proposed_amount: proposed_amount, sub_proposed_at: now })
+      .eq('id', existing.id)
+  } else {
+    await supabaseAdmin.from('bf_sub_budgets')
+      .insert({ project_id: projectId, task_id, sub_id: subId,
+        sub_proposed_amount: proposed_amount, sub_proposed_at: now })
+  }
+
+  // Notify builder via bf_portal_messages + bf_notifications
+  try {
+    const msgContent = `💬 ${company} propone $${Math.round(proposed_amount).toLocaleString()} para esta tarea. Por favor revisa y confirma el monto acordado.`
+
+    await supabaseAdmin.from('bf_portal_messages').insert({
+      project_id: projectId,
+      sub_id: subId,
+      sender: 'korvia',
+      content: msgContent,
+    })
+
+    await supabaseAdmin.from('bf_notifications').insert({
+      project_id: projectId,
+      task_id,
+      type: 'budget_agreed',
+      title: `💬 Contra-propuesta de ${company}: $${Math.round(proposed_amount).toLocaleString()}`,
+      body: `El sub propone este monto. Revisa en Budget & Costs para confirmar.`,
+      is_read: false,
+    })
+  } catch (_) {
+    // Non-critical
+  }
+
+  return NextResponse.json({ ok: true })
 }
 
 // ── POST — submit or update an estimate ───────────────────────────────────
@@ -59,7 +128,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .from('bf_subcontractors').select('phone').eq('id', subId).single()
   if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Upsert: one estimate per (project, sub, type, task_id)
   let query = supabaseAdmin
     .from('bf_portal_estimates')
     .select('id')
@@ -94,9 +162,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     result = data
   }
 
-  // ── Side-effects after saving ─────────────────────────────────────────────
   try {
-    // 1. Get subcontractor company name for the notification
     const { data: subRecord } = await supabaseAdmin
       .from('bf_subcontractors')
       .select('company, name')
@@ -104,7 +170,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       .maybeSingle()
     const company = subRecord?.company || subRecord?.name || sub.phone
 
-    // 2. Insert bf_notifications so Sync Board activity feed sees the new estimate
     await supabaseAdmin.from('bf_notifications').insert({
       project_id: projectId,
       type: 'subcontractor',
@@ -114,7 +179,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       is_read: false,
     })
 
-    // 3. Upsert bf_sub_budgets so project-context + ask-korvia read the latest immediately
     if (type === 'task' && task_id) {
       const { data: sbExisting } = await supabaseAdmin
         .from('bf_sub_budgets')
@@ -133,9 +197,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
           .insert({ project_id: projectId, task_id, sub_id: subId, quoted_amount: amount })
       }
     }
-  } catch (_) {
-    // Side-effects are non-critical — don't fail the response if they error
-  }
+  } catch (_) { }
 
   return NextResponse.json({ ok: true, estimate: result })
 }
