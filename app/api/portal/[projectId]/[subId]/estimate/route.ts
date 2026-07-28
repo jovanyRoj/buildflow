@@ -19,7 +19,28 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     .eq('sub_phone', sub.phone)
     .order('created_at', { ascending: false })
 
-  return NextResponse.json({ estimates: estimates ?? [] })
+  // Enrich with approved_amount from bf_sub_budgets (builder-negotiated amount)
+  const taskIds = (estimates ?? []).filter((e: any) => e.task_id).map((e: any) => e.task_id)
+  const approvedMap: Record<string, number> = {}
+  if (taskIds.length > 0) {
+    const { data: budgets } = await supabaseAdmin
+      .from('bf_sub_budgets')
+      .select('task_id, approved_amount')
+      .eq('sub_id', subId)
+      .in('task_id', taskIds)
+    for (const b of budgets ?? []) {
+      if (b.task_id && b.approved_amount != null) {
+        approvedMap[b.task_id] = b.approved_amount
+      }
+    }
+  }
+
+  const enriched = (estimates ?? []).map((e: any) => ({
+    ...e,
+    approved_amount: e.task_id ? (approvedMap[e.task_id] ?? null) : null,
+  }))
+
+  return NextResponse.json({ estimates: enriched })
 }
 
 // ── POST — submit or update an estimate ───────────────────────────────────

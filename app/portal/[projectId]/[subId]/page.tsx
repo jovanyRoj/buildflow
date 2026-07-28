@@ -29,7 +29,7 @@ type UrgencyValue = 'low'|'medium'|'high'|'emergency'
 
 /* ─── interfaces ─────────────────────────────────────────────────────────── */
 interface PortalMessage { id:string; sender:'sub'|'korvia'; content:string; created_at:string }
-interface Estimate { id?:string; type:'project'|'task'; task_id?:string; amount:string; notes:string }
+interface Estimate { id?:string; type:'project'|'task'; task_id?:string; amount:string; notes:string; approved_amount?:number|null }
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 function mapsUrl(addr:string) {
@@ -971,17 +971,54 @@ export default function SubPortal() {
 
             {estimates.length>0 && (
               <div className={cardCls}>
-                <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-3">Previous Estimates</p>
-                <div className="space-y-2">
+                <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-3">📋 Tu Historial de Estimados</p>
+                <div className="space-y-3">
                   {estimates.map((e,i)=>{
-                    const t = tasks.find((x:any)=>x.id===e.task_id)
+                    const t        = allTasks.find((x:any)=>x.id===e.task_id)
+                    const hasAgreed = e.approved_amount != null
+                    const subAmt    = parseFloat(e.amount) || 0
+                    const agreedAmt = e.approved_amount ?? 0
+                    const diff      = hasAgreed ? agreedAmt - subAmt : null
                     return (
-                      <div key={e.id||i} className="flex items-start gap-3 py-2 border-t border-white/10 first:border-0 first:pt-0">
-                        <div className="flex-1">
-                          <p className="text-white text-sm font-semibold">{fmtMoney(parseFloat(e.amount))}</p>
-                          <p className="text-white/50 text-xs">{t?t.name:'Whole project'}</p>
-                          {e.notes && <p className="text-white/40 text-xs mt-0.5">{e.notes}</p>}
+                      <div key={e.id||i} className="bg-white/5 rounded-2xl border border-white/10 p-3 space-y-2.5">
+
+                        {/* Task label + status badge */}
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-white/70 text-xs font-semibold truncate">{t ? t.name : 'Proyecto completo'}</p>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${hasAgreed ? 'bg-emerald-500/25 text-emerald-300' : 'bg-yellow-500/20 text-yellow-300'}`}>
+                            {hasAgreed ? '✅ Acordado' : '⏳ Pendiente'}
+                          </span>
                         </div>
+
+                        {/* Side-by-side comparison */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white/5 rounded-xl p-2.5 text-center">
+                            <p className="text-[9px] font-bold text-white/40 uppercase tracking-wide mb-0.5">Tu Cotización</p>
+                            <p className="text-base font-extrabold text-white">{fmtMoney(subAmt)}</p>
+                          </div>
+                          <div className={`rounded-xl p-2.5 text-center border ${hasAgreed ? 'bg-emerald-500/15 border-emerald-400/25' : 'bg-white/5 border-white/10'}`}>
+                            <p className="text-[9px] font-bold text-white/40 uppercase tracking-wide mb-0.5">Builder Acordó</p>
+                            <p className={`text-base font-extrabold ${hasAgreed ? 'text-emerald-300' : 'text-white/20'}`}>
+                              {hasAgreed ? fmtMoney(agreedAmt) : '—'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Difference banner */}
+                        {hasAgreed && diff !== null && diff !== 0 && (
+                          <div className={`text-center py-1.5 rounded-xl text-[10px] font-bold ${diff > 0 ? 'bg-blue-500/10 text-blue-300' : 'bg-orange-500/10 text-orange-300'}`}>
+                            {diff > 0
+                              ? `⬆ Builder ajustó +${fmtMoney(diff)} sobre tu cotización`
+                              : `⬇ Builder negoció ${fmtMoney(Math.abs(diff))} por debajo`}
+                          </div>
+                        )}
+                        {hasAgreed && diff === 0 && (
+                          <div className="text-center py-1.5 rounded-xl text-[10px] font-bold bg-emerald-500/10 text-emerald-300">
+                            ✅ Monto aceptado exactamente como cotizaste
+                          </div>
+                        )}
+
+                        {e.notes && <p className="text-white/40 text-[11px]">📝 {e.notes}</p>}
                       </div>
                     )
                   })}
