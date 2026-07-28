@@ -95,7 +95,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   // Subcontractors with schedule data
   const { data: subs } = await supabaseAdmin
     .from('bf_subcontractors')
-    .select('id, company, phone, trade, sub_date_schedule, sub_schedule_notes')
+    .select('id, company, phone, trade')
     .eq('project_id', projectId)
 
   const subsByPhone: Record<string, any> = {}
@@ -136,8 +136,8 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
         ? { amount: subAmt, notes: portalEst?.notes ?? null, submitted_at: portalEst?.created_at ?? null }
         : null,
       sub_company: sub?.company ?? task.assigned_to ?? null,
-      sub_schedule: sub?.sub_date_schedule ?? null,
-      sub_schedule_notes: sub?.sub_schedule_notes ?? null,
+      sub_schedule: null,
+      sub_schedule_notes: null,
       sub_quoted_amount:    subBudgetMap[task.id]    ?? null,
       sub_proposed_amount:  subProposedMap[task.id]  ?? null,
       builder_proposed_amount: approvedMap[task.id]  ?? null,
