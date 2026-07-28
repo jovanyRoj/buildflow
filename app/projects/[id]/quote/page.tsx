@@ -76,6 +76,10 @@ export default function QuotePage() {
   const [showAddItem,     setShowAddItem]     = useState<string | null>(null)
   const [showArchived,    setShowArchived]    = useState(false)
 
+  // ── drag-and-drop reorder ─────────────────────────────────────────────────
+  const [dragPhaseId, setDragPhaseId] = useState<string | null>(null)
+  const [dragOverId,  setDragOverId]  = useState<string | null>(null)
+
   // ── form states ───────────────────────────────────────────────────────────
   const [setupForm,    setSetupForm]    = useState({ total_budget: '', contingency_pct: '10', notes: '' })
   const [phaseForm,    setPhaseForm]    = useState({ phase_name: '', budget_amount: '', notes: '' })
@@ -147,6 +151,22 @@ export default function QuotePage() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    })
+  }
+
+  async function handleReorder(fromId: string, toId: string) {
+    if (fromId === toId) return
+    const fromIdx = phases.findIndex(p => p.id === fromId)
+    const toIdx   = phases.findIndex(p => p.id === toId)
+    if (fromIdx < 0 || toIdx < 0) return
+    const reordered = [...phases]
+    const [moved]   = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    const updated = reordered.map((p, i) => ({ ...p, phase_order: i + 1 }))
+    setPhases(updated) // optimistic update
+    await quoteAction({
+      action: 'reorder_phases',
+      phases: updated.map(p => ({ id: p.id, phase_order: p.phase_order })),
     })
   }
 
@@ -728,7 +748,22 @@ export default function QuotePage() {
             const archivedItems  = phase.archived_items ?? []
 
             return (
-              <div key={phase.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+              <div
+                key={phase.id}
+                draggable
+                onDragStart={() => setDragPhaseId(phase.id)}
+                onDragOver={e => { e.preventDefault(); setDragOverId(phase.id) }}
+                onDrop={() => {
+                  if (dragPhaseId) handleReorder(dragPhaseId, phase.id)
+                  setDragPhaseId(null); setDragOverId(null)
+                }}
+                onDragEnd={() => { setDragPhaseId(null); setDragOverId(null) }}
+                className={[
+                  'bg-white rounded-2xl shadow-sm overflow-hidden transition-all',
+                  dragPhaseId === phase.id ? 'opacity-40 scale-[0.98]' : '',
+                  dragOverId === phase.id && dragPhaseId !== phase.id ? 'ring-2 ring-blue-400 ring-offset-2' : '',
+                ].join(' ')}
+              >
 
                 {/* Phase header */}
                 {isEditingPhase ? (
@@ -774,6 +809,12 @@ export default function QuotePage() {
                       {/* Fila: número + nombre + estado */}
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div className="flex items-center gap-2.5">
+                          {/* Drag handle */}
+                          <span
+                            title="Drag to reorder"
+                            className="text-gray-300 cursor-grab active:cursor-grabbing select-none text-base leading-none mr-0.5 shrink-0"
+                            style={{ touchAction: 'none' }}
+                          >⠿</span>
                           <span className="w-7 h-7 bg-[#1A2B4A] text-white rounded-xl text-xs font-bold flex items-center justify-center shrink-0">{phase.phase_order}</span>
                           <div>
                             <p className="text-sm font-bold text-gray-900 leading-tight">{phase.phase_name}</p>

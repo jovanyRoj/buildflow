@@ -465,6 +465,22 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: true })
   }
 
+
+  // ── Reorder phases ────────────────────────────────────────────────────────
+  if (action === 'reorder_phases') {
+    const items = rest.phases as { id: string; phase_order: number }[]
+    if (!Array.isArray(items)) return NextResponse.json({ error: 'Invalid phases' }, { status: 400 })
+    await Promise.all(
+      items.map(({ id, phase_order }) =>
+        supabaseAdmin.from('bf_quote_phases')
+          .update({ phase_order })
+          .eq('id', id)
+          .eq('project_id', projectId)
+      )
+    )
+    return NextResponse.json({ ok: true })
+  }
+
   // ── Hard delete phase (legacy) ────────────────────────────────────────────
   if (action === 'delete_phase') {
     await supabaseAdmin.from('bf_quote_phases').delete().eq('id', rest.id).eq('project_id', projectId)
