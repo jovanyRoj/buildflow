@@ -422,19 +422,40 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       )
     }
 
-    // Send KORVIA SMS
+    // Send KORVIA SMS + persist message to portal + create notification
+    const { data: proj } = await supabaseAdmin
+      .from('bf_projects').select('name').eq('id', projectId).single()
+    const projectName = proj?.name ?? 'el proyecto'
+
+    const msgContent =
+      `KORVIA: Tu cotización para "${phase_name}" en ${projectName} fue revisada. ` +
+      `El monto acordado es ${fmt$(agreed_amount)}. Por favor revisa tu portal para confirmar.`
+
     if (sub_phone) {
-      const { data: proj } = await supabaseAdmin
-        .from('bf_projects').select('name').eq('id', projectId).single()
-      const projectName = proj?.name ?? 'el proyecto'
+      try { await sendSMS(sub_phone, msgContent) } catch {}
+    }
+
+    // ── Insert into bf_portal_messages → shows in sub portal + builder Messages panel ──
+    if (sub_id) {
       try {
-        await sendSMS(
-          sub_phone,
-          `KORVIA: El constructor revisó tu cotización para "${phase_name}" en ${projectName}. ` +
-          `El monto acordado es ${fmt$(agreed_amount)}. Por favor revisa tu portal para confirmar.`
-        )
+        await supabaseAdmin.from('bf_portal_messages').insert({
+          project_id: projectId,
+          sub_id,
+          sender: 'korvia',
+          content: msgContent,
+        })
       } catch {}
     }
+
+    // ── Insert into bf_notifications → shows in builder Alerts ──
+    try {
+      await supabaseAdmin.from('bf_notifications').insert({
+        project_id: projectId,
+        type: 'budget_agreed',
+        title: `💰 Acuerdo de presupuesto — ${phase_name}`,
+        body: `KORVIA notificó a ${sub_company ?? 'el sub'} el monto acordado de ${fmt$(agreed_amount)} para "${phase_name}".`,
+      })
+    } catch {}
 
     await logAudit({
       project_id: projectId, entity_type: 'phase', entity_id: task_id ?? phase_name,

@@ -69,11 +69,17 @@ export async function buildKorviaProjectContext(projectId: string): Promise<stri
   const portalEsts: any[] = (portalEstRes as any).data ?? []
   const materials: any[]  = (matsRes as any).data ?? []
 
-  // Build sub-budget lookup (task_id → quoted_amount)
+  // Build sub-budget lookup (task_id → quoted_amount) + approved_amount map
+  const approvedMap: Record<string, number> = {}
+  let totalApproved = 0
   for (const b of subBudgets) {
     if (b.task_id && subBudgetMap[b.task_id] === undefined) {
       subBudgetMap[b.task_id] = b.quoted_amount ?? 0
       totalSubQuoted += b.quoted_amount ?? 0
+    }
+    if (b.task_id && b.approved_amount != null && approvedMap[b.task_id] === undefined) {
+      approvedMap[b.task_id] = b.approved_amount
+      totalApproved += b.approved_amount
     }
   }
   // Fallback: portal estimates (task-level)
@@ -108,7 +114,8 @@ export async function buildKorviaProjectContext(projectId: string): Promise<stri
       ? `${t.sub_start_date}→${t.sub_end_date}(sub)`
       : t.start_date && t.end_date ? `${t.start_date}→${t.end_date}` : ''
     if (dates) parts.push(dates)
-    if (subBudgetMap[t.id]) parts.push(`sub-est:${fmt(subBudgetMap[t.id])}`)
+    if (subBudgetMap[t.id]) parts.push(`sub-quoted:${fmt(subBudgetMap[t.id])}`)
+    if (approvedMap[t.id])  parts.push(`AGREED:${fmt(approvedMap[t.id])}`)
     if (t.inspection_required) parts.push(`inspection:${t.inspection_status ?? 'pending'}`)
     if (t.notes) parts.push(`notes:"${t.notes}"`)
     return `  • ${parts.join(' | ')}`
@@ -126,13 +133,36 @@ export async function buildKorviaProjectContext(projectId: string): Promise<stri
   const totalPhaseBudget  = phases.reduce((s: number, p: any) => s + (p.budget_amount ?? 0), 0)
   const totalKorviaItems  = allItems.reduce((s: number, i: any) => s + (i.estimated_amount ?? 0), 0)
 
+  // Build phase → task mapping for approved amounts per phase
+  const phaseApprovedMap: Record<string, number> = {}
+  const phaseQuotedMap: Record<string, number>   = {}
+  for (const t of tasks) {
+    if (!t.name) continue
+    // Fuzzy match: find phases whose name shares keywords with the task name
+    for (const p of phases) {
+      const pl = (p.phase_name ?? '').toLowerCase()
+      const tl = (t.name ?? '').toLowerCase()
+      const words = tl.split(/\s+/).filter((w: string) => w.length > 3)
+      if (words.some((w: string) => pl.includes(w) || tl.includes(pl.split(' ')[0]))) {
+        if (approvedMap[t.id])     phaseApprovedMap[p.id] = (phaseApprovedMap[p.id] ?? 0) + approvedMap[t.id]
+        if (subBudgetMap[t.id])    phaseQuotedMap[p.id]   = (phaseQuotedMap[p.id]   ?? 0) + subBudgetMap[t.id]
+      }
+    }
+  }
+
   const phaseLines = phases.map((p: any) => {
     const pItems    = itemsByPhase[p.id] ?? []
     const itemTotal = pItems.reduce((s: number, i: any) => s + (i.estimated_amount ?? 0), 0)
     const itemSummary = pItems.length > 0
       ? pItems.map((i: any) => `${i.description} ${fmt(i.estimated_amount)}`).join(', ')
       : 'sin items'
-    return `  • ${p.phase_order}. ${p.phase_name} — budget:${fmt(p.budget_amount)} | KORVIA-est:${fmt(itemTotal)} | items:[${itemSummary}]`
+    const subQ    = phaseQuotedMap[p.id]
+    const agreedA = phaseApprovedMap[p.id]
+    const extra   = [
+      subQ    ? `sub-quoted:${fmt(subQ)}`   : '',
+      agreedA ? `AGREED:${fmt(agreedA)}`    : '',
+    ].filter(Boolean).join(' | ')
+    return `  • ${p.phase_order}. ${p.phase_name} — budget:${fmt(p.budget_amount)} | KORVIA-est:${fmt(itemTotal)}${extra ? ' | ' + extra : ''} | items:[${itemSummary}]`
   })
 
   // ── Finance section (linked with estimates) ──────────────────────────────
@@ -173,6 +203,13 @@ export async function buildKorviaProjectContext(projectId: string): Promise<stri
         finLines.push(`Budget Surplus/Deficit: ${diff >= 0 ? '+' : ''}${fmt(diff)} (${((totalSubQuoted/buildBudget)*100).toFixed(1)}% used)`)
       }
     }
+    if (totalApproved > 0) {
+      finLines.push(`KORVIA Negotiated/Agreed Total: ${fmt(totalApproved)} (amounts approved by builder)`)
+      if (buildBudget > 0) {
+        const diff = buildBudget - totalApproved
+        finLines.push(`Agreed vs Budget: ${diff >= 0 ? '+' : ''}${fmt(diff)} remaining`)
+      }
+    }
     if (totalKorviaItems > 0) {
       finLines.push(`KORVIA Item Estimates Total: ${fmt(totalKorviaItems)} (from ${allItems.length} line items)`)
       if (buildBudget > 0) {
@@ -207,7 +244,7 @@ export async function buildKorviaProjectContext(projectId: string): Promise<stri
     subLines.join('\n') || '  (none)',
     ...(phases.length > 0 ? [
       ``,
-      `BUDGET QUOTE (${phases.length} phases | allocated:${fmt(totalPhaseBudget)} | KORVIA-items:${fmt(totalKorviaItems)} | sub-quoted:${fmt(totalSubQuoted)}):`,
+      `BUDGET QUOTE (${phases.length} phases | allocated:${fmt(totalPhaseBudget)} | KORVIA-items:${fmt(totalKorviaItems)} | sub-quoted:${fmt(totalSubQuoted)}${totalApproved > 0 ? ` | NEGOTIATED-AGREED:${fmt(totalApproved)}` : ''}):`,
       phaseLines.join('\n'),
     ] : []),
     ...(finLines.length ? [
