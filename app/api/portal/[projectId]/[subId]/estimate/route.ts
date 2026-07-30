@@ -119,8 +119,8 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 export async function POST(req: NextRequest, { params }: Ctx) {
   const { projectId, subId } = await params
   const body = await req.json()
-  const { type, task_id, amount, notes } = body as {
-    type: 'project' | 'task'; task_id?: string; amount: number; notes?: string
+  const { type, task_id: bodyTaskId, new_task_name, amount, notes } = body as {
+    type: 'project' | 'task'; task_id?: string; new_task_name?: string; amount: number; notes?: string
   }
 
   if (!type || amount == null) {
@@ -128,14 +128,40 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   const { data: sub } = await supabaseAdmin
-    .from('bf_subcontractors').select('phone').eq('id', subId).single()
+    .from('bf_subcontractors').select('phone, company, name').eq('id', subId).single()
   if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // If a new task name is provided, create the bf_tasks entry first
+  let task_id = bodyTaskId
+  if (type === 'task' && new_task_name?.trim()) {
+    // Count existing tasks to set task_order
+    const { count } = await supabaseAdmin
+      .from('bf_tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('project_id', projectId)
+    const { data: newTask, error: taskErr } = await supabaseAdmin
+      .from('bf_tasks')
+      .insert({
+        project_id: projectId,
+        name: new_task_name.trim(),
+        status: 'active',
+        assigned_to: (sub as any).company || (sub as any).name || null,
+        subcontractor_phone: (sub as any).phone || null,
+        task_order: (count ?? 0) + 1,
+      })
+      .select('id')
+      .single()
+    if (taskErr || !newTask) {
+      return NextResponse.json({ error: 'Failed to create task', detail: taskErr?.message }, { status: 500 })
+    }
+    task_id = newTask.id
+  }
 
   let query = supabaseAdmin
     .from('bf_portal_estimates')
     .select('id')
     .eq('project_id', projectId)
-    .eq('sub_phone', sub.phone)
+    .eq('sub_phone', (sub as any).phone)
     .eq('type', type)
   if (type === 'task' && task_id) query = query.eq('task_id', task_id)
   else query = query.is('task_id', null)
@@ -155,7 +181,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       .from('bf_portal_estimates')
       .insert({
         project_id: projectId,
-        sub_phone: sub.phone,
+        sub_phone: (sub as any).phone,
         type,
         task_id: (type === 'task' && task_id) ? task_id : null,
         amount,
@@ -166,12 +192,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   try {
-    const { data: subRecord } = await supabaseAdmin
-      .from('bf_subcontractors')
-      .select('company, name')
-      .eq('id', subId)
-      .maybeSingle()
-    const company = subRecord?.company || subRecord?.name || sub.phone
+    const company = (sub as any).company || (sub as any).name || (sub as any).phone
 
     await supabaseAdmin.from('bf_notifications').insert({
       project_id: projectId,

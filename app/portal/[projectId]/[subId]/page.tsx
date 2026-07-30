@@ -99,6 +99,7 @@ export default function SubPortal() {
   const [estAmt,        setEstAmt]        = useState('')
   const [estNotes,      setEstNotes]      = useState('')
   const [estTaskId,     setEstTaskId]     = useState('')
+  const [estNewTaskName, setEstNewTaskName] = useState('')
   const [estScope,      setEstScope]      = useState<'project'|'task'>('task')
   const [saving,        setSaving]        = useState(false)
   const [savedTask,     setSavedTask]     = useState<Record<string,boolean>>({})
@@ -344,19 +345,23 @@ export default function SubPortal() {
 
   async function submitEstimate() {
     if (!estAmt) return
-    if (estScope === 'task' && !estTaskId) return   // must pick a task when scope=task
+    if (estScope === 'task' && !estNewTaskName.trim()) return
     setSubmittingEst(true)
     await fetch(`${base}/estimate`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({type:estScope,task_id:estScope==='task'?estTaskId:null,amount:Number(estAmt),notes:estNotes})})
+      body:JSON.stringify({
+        type: estScope,
+        new_task_name: estScope === 'task' ? estNewTaskName.trim() : undefined,
+        amount: Number(estAmt),
+        notes: estNotes,
+      })})
     const er = await fetch(`${base}/estimate`)
     if (er.ok) { const ed=await er.json(); setEstimates(ed.estimates||[]) }
     // notify KORVIA for timeline/budget update
-    const eTask = tasks.find((t:any)=>t.id===estTaskId)
-    const scopeLabel = estScope==='task' ? `task "${eTask?.name||estTaskId}"` : 'the whole project'
+    const scopeLabel = estScope === 'task' ? `nueva tarea "${estNewTaskName.trim()}"` : 'the whole project'
     await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'send_message',
         content:`💰 New estimate submitted: $${Number(estAmt).toLocaleString()} for ${scopeLabel}. Notes: ${estNotes||'none'}. Please update the project budget and timeline.`})})
-    setEstAmt(''); setEstNotes(''); setEstTaskId('')
+    setEstAmt(''); setEstNotes(''); setEstNewTaskName('')
     setSubmittingEst(false)
   }
 
@@ -961,16 +966,15 @@ export default function SubPortal() {
 
                 {estScope==='task' && (
                   <div>
-                    <label className={labelCls}>Task</label>
-                    {allTasks.length > 0 ? (
-                      <select value={estTaskId} onChange={e=>setEstTaskId(e.target.value)}
-                        className={inputCls}>
-                        <option value="" disabled>Select task…</option>
-                        {allTasks.map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}
-                      </select>
-                    ) : (
-                      <p className="text-white/40 text-xs mt-1">No tasks found for this project</p>
-                    )}
+                    <label className={labelCls}>New task name</label>
+                    <input
+                      type="text"
+                      value={estNewTaskName}
+                      placeholder="e.g. Extra concrete pour, Return visit…"
+                      onChange={e=>setEstNewTaskName(e.target.value)}
+                      className={inputCls}
+                    />
+                    <p className="text-white/30 text-[10px] mt-1">Describe the extra work not in the original scope. A new task will be created automatically.</p>
                   </div>
                 )}
 
@@ -986,7 +990,7 @@ export default function SubPortal() {
                     onChange={e=>setEstNotes(e.target.value)} className={inputCls}/>
                 </div>
 
-                <button onClick={submitEstimate} disabled={submittingEst||!estAmt||(estScope==='task'&&!estTaskId)} className={btnPrimary}>
+                <button onClick={submitEstimate} disabled={submittingEst||!estAmt||(estScope==='task'&&!estNewTaskName.trim())} className={btnPrimary}>
                   {submittingEst?'Submitting…':'Submit Estimate 💰'}
                 </button>
               </div>

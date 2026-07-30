@@ -768,7 +768,8 @@ export default function QuotePage() {
                     t.subcontractor_phone === sub.phone ||
                     (t.assigned_to ?? '').toLowerCase() === (sub.company ?? '').toLowerCase()
                   )
-                  const totalQ = linkedTasks.reduce((s, t) => s + (t.subAmt ?? 0), 0)
+                  const hasAnyFinal = linkedTasks.some(t => t.finalAgreedAmount != null)
+                  const totalFinal  = linkedTasks.reduce((s, t) => s + (t.finalAgreedAmount ?? t.subAmt ?? 0), 0)
                   const matchedPhases = phases.filter(p =>
                     getPhaseSubData(p.phase_name).some(ps =>
                       (ps.company ?? '').toLowerCase() === (sub.company ?? '').toLowerCase()
@@ -788,10 +789,12 @@ export default function QuotePage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className={`text-sm font-bold ${totalQ > 0 ? 'text-emerald-600' : 'text-gray-300'}`}>
-                          {totalQ > 0 ? fmt(totalQ) : '—'}
+                        <p className={`text-sm font-bold ${totalFinal > 0 ? 'text-emerald-600' : 'text-gray-300'}`}>
+                          {totalFinal > 0 ? fmt(totalFinal) : '—'}
                         </p>
-                        <p className="text-[9px] text-gray-400">{totalQ > 0 ? 'cotizado' : 'sin cotización'}</p>
+                        <p className="text-[9px] text-gray-400">
+                          {totalFinal > 0 ? (hasAnyFinal ? 'acordado' : 'cotizado') : 'sin cotización'}
+                        </p>
                       </div>
                     </div>
                   )
@@ -898,10 +901,10 @@ export default function QuotePage() {
                           </div>
                           {/* Two big comparison cards */}
                           <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 text-center">
-                              <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide mb-1">🤖 KORVIA Est.</p>
-                              <p className="text-xl font-extrabold text-indigo-700">{phaseTotal > 0 ? fmt(phaseTotal) : '—'}</p>
-                              <p className="text-[9px] text-indigo-300 mt-0.5">{(phase.bf_quote_items ?? []).length} item{(phase.bf_quote_items ?? []).length !== 1 ? 's' : ''}</p>
+                            <div className="bg-indigo-600 border border-indigo-500 rounded-2xl p-3 text-center">
+                              <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-wide mb-1">🤖 KORVIA Est.</p>
+                              <p className="text-xl font-extrabold text-white">{phaseTotal > 0 ? fmt(phaseTotal) : '—'}</p>
+                              <p className="text-[9px] text-indigo-200 mt-0.5">{(phase.bf_quote_items ?? []).length} item{(phase.bf_quote_items ?? []).length !== 1 ? 's' : ''}</p>
                             </div>
                             <div className={`rounded-2xl border p-3 text-center ${s.amount > 0 ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
                               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">👷 Sub Real</p>
