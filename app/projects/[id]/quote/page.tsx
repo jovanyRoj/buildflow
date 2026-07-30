@@ -81,6 +81,13 @@ export default function QuotePage() {
   const [dragPhaseId, setDragPhaseId] = useState<string | null>(null)
   const [dragOverId,  setDragOverId]  = useState<string | null>(null)
 
+  // ── inline phase-order edit ───────────────────────────────────────────────
+  const [editOrderPhase, setEditOrderPhase] = useState<string | null>(null)
+  const [editOrderVal,   setEditOrderVal]   = useState('')
+
+  // ── fallback negotiation (when no sub auto-matched to phase) ──────────────
+  const [fallbackSubId, setFallbackSubId] = useState<Record<string, string>>({})
+
   // ── form states ───────────────────────────────────────────────────────────
   const [setupForm,    setSetupForm]    = useState({ total_budget: '', contingency_pct: '10', notes: '' })
   const [phaseForm,    setPhaseForm]    = useState({ phase_name: '', budget_amount: '', notes: '' })
@@ -172,6 +179,66 @@ export default function QuotePage() {
       action: 'reorder_phases',
       phases: updated.map(p => ({ id: p.id, phase_order: p.phase_order })),
     })
+  }
+
+  async function handleReorderByNumber(phaseId: string, newOrder: number) {
+    const total   = phases.length
+    const clamped = Math.max(1, Math.min(total, newOrder))
+    const fromIdx = phases.findIndex(p => p.id === phaseId)
+    const toIdx   = clamped - 1
+    setEditOrderPhase(null)
+    if (fromIdx < 0 || fromIdx === toIdx) return
+    const reordered = [...phases]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    const updated = reordered.map((p, i) => ({ ...p, phase_order: i + 1 }))
+    setPhases(updated)
+    await quoteAction({
+      action: 'reorder_phases',
+      phases: updated.map(p => ({ id: p.id, phase_order: p.phase_order })),
+    })
+  }
+
+  async function handleFallbackAgreed(phase: Phase) {
+    const subId  = fallbackSubId[phase.id]
+    const agreed = parseFloat(subNegotiate[phase.id] ?? '')
+    if (!subId || !agreed) return
+    const selectedSub = registeredSubs.find(s => s.id === subId)
+    if (!selectedSub || !project) return
+    setAgreeSending(p => ({ ...p, [phase.id]: true }))
+    // Find or create a linked task for this sub
+    let taskId: string | null = subTasks.find(t =>
+      t.subcontractor_phone === selectedSub.phone ||
+      (t.assigned_to ?? '').toLowerCase() === (selectedSub.company ?? '').toLowerCase()
+    )?.id ?? null
+    if (!taskId) {
+      try {
+        await fetch('/api/builder/restore-task', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: project.id, subId }),
+        })
+        const d = await fetch(`/api/builder/project-context/${project.id}`).then(r => r.ok ? r.json() : null)
+        if (d?.tasks) {
+          const newTasks = d.tasks
+            .filter((t: any) => !!(t.assigned_to || t.subcontractor_phone))
+            .map((t: any) => ({ ...t, builderAmt: t.builder_estimate?.amount ?? 0, subAmt: t.sub_estimate?.amount ?? 0, subProposedAmount: t.sub_proposed_amount ?? null, builderProposedAmount: t.builder_proposed_amount ?? null, finalAgreedAmount: t.final_agreed_amount ?? null }))
+          setSubTasks(newTasks)
+          setRegisteredSubs(d.subs ?? [])
+          taskId = newTasks.find((t: any) =>
+            t.subcontractor_phone === selectedSub.phone ||
+            (t.assigned_to ?? '').toLowerCase() === (selectedSub.company ?? '').toLowerCase()
+          )?.id ?? null
+        }
+      } catch {}
+    }
+    setAgreeSending(p => ({ ...p, [phase.id]: false }))
+    await handleMarkAgreed(phase.id, {
+      company: selectedSub.company ?? '',
+      amount: agreed,
+      taskId,
+      subId,
+    })
+    setFallbackSubId(p => { const n = { ...p }; delete n[phase.id]; return n })
   }
 
   async function handleSetup(e: React.FormEvent) {
@@ -357,6 +424,16 @@ export default function QuotePage() {
       }
     }
     return results
+  }
+
+  // Simple keyword overlap helper for Subs Vinculados trade matching
+  function tradeOverlap(taskName: string, trade: string): boolean {
+    if (!taskName || !trade) return false
+    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    const keys = (s: string) => norm(s).split(/[\s&\/\-,\.]+/).filter(w => w.length > 4).map(w => w.slice(0, 7))
+    const a = keys(taskName)
+    const b = keys(trade)
+    return b.length > 0 && a.some(x => b.some(y => x.startsWith(y.slice(0, 5)) || y.startsWith(x.slice(0, 5))))
   }
 
   const orphanedSubs = registeredSubs.filter(sub => {
@@ -766,7 +843,8 @@ export default function QuotePage() {
                 {registeredSubs.map(sub => {
                   const linkedTasks = subTasks.filter(t =>
                     t.subcontractor_phone === sub.phone ||
-                    (t.assigned_to ?? '').toLowerCase() === (sub.company ?? '').toLowerCase()
+                    (t.assigned_to ?? '').toLowerCase() === (sub.company ?? '').toLowerCase() ||
+                    tradeOverlap(t.name ?? '', sub.trade ?? '')
                   )
                   const hasAnyFinal = linkedTasks.some(t => t.finalAgreedAmount != null)
                   const totalFinal  = linkedTasks.reduce((s, t) => s + (t.finalAgreedAmount ?? t.subAmt ?? 0), 0)
@@ -880,7 +958,24 @@ export default function QuotePage() {
                             className="text-gray-300 cursor-grab active:cursor-grabbing select-none text-base leading-none mr-0.5 shrink-0"
                             style={{ touchAction: 'none' }}
                           >⠿</span>
-                          <span className="w-7 h-7 bg-[#1A2B4A] text-white rounded-xl text-xs font-bold flex items-center justify-center shrink-0">{phase.phase_order}</span>
+                          {editOrderPhase === phase.id ? (
+                            <input
+                              type="number" min="1" max={phases.length}
+                              autoFocus
+                              value={editOrderVal}
+                              onChange={e => setEditOrderVal(e.target.value)}
+                              onBlur={() => { const n = parseInt(editOrderVal); if (!isNaN(n)) handleReorderByNumber(phase.id, n); else setEditOrderPhase(null) }}
+                              onKeyDown={e => { if (e.key === 'Enter') { const n = parseInt(editOrderVal); if (!isNaN(n)) handleReorderByNumber(phase.id, n); else setEditOrderPhase(null) } else if (e.key === 'Escape') setEditOrderPhase(null) }}
+                              className="w-7 h-7 bg-blue-600 text-white rounded-xl text-xs font-bold text-center p-0 border-0 focus:ring-2 focus:ring-blue-300 shrink-0"
+                              style={{ appearance: 'textfield' }}
+                            />
+                          ) : (
+                            <span
+                              onClick={() => { setEditOrderPhase(phase.id); setEditOrderVal(String(phase.phase_order)) }}
+                              title="Toca para cambiar el orden"
+                              className="w-7 h-7 bg-[#1A2B4A] text-white rounded-xl text-xs font-bold flex items-center justify-center shrink-0 cursor-pointer hover:bg-blue-700 transition-colors select-none"
+                            >{phase.phase_order}</span>
+                          )}
                           <div>
                             <p className="text-sm font-bold text-gray-900 leading-tight">{phase.phase_name}</p>
                             <p className="text-[10px] text-gray-400 mt-0.5">{(phase.bf_quote_items ?? []).length} items · budget {fmt(phase.budget_amount)}</p>
@@ -1010,18 +1105,54 @@ export default function QuotePage() {
                           </div>
                         </div>
                       )) : (
-                        /* No sub asignado — mostrar cards vacías */
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 text-center">
-                            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide mb-1">🤖 KORVIA Est.</p>
-                            <p className="text-xl font-extrabold text-indigo-700">{phaseTotal > 0 ? fmt(phaseTotal) : '—'}</p>
-                            <p className="text-[9px] text-indigo-300 mt-0.5">{(phase.bf_quote_items ?? []).length} item{(phase.bf_quote_items ?? []).length !== 1 ? 's' : ''}</p>
+                        /* No sub auto-matched — show KORVIA card + manual link panel */
+                        <div className="space-y-2.5">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-indigo-600 border border-indigo-500 rounded-2xl p-3 text-center">
+                              <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-wide mb-1">🤖 KORVIA Est.</p>
+                              <p className="text-xl font-extrabold text-white">{phaseTotal > 0 ? fmt(phaseTotal) : '—'}</p>
+                              <p className="text-[9px] text-indigo-200 mt-0.5">{(phase.bf_quote_items ?? []).length} item{(phase.bf_quote_items ?? []).length !== 1 ? 's' : ''}</p>
+                            </div>
+                            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">👷 Sub Real</p>
+                              <p className="text-xl font-extrabold text-gray-300">—</p>
+                              <p className="text-[9px] text-gray-300 mt-0.5">sin sub vinculado</p>
+                            </div>
                           </div>
-                          <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">👷 Sub Real</p>
-                            <p className="text-xl font-extrabold text-gray-300">—</p>
-                            <p className="text-[9px] text-gray-300 mt-0.5">sin sub asignado</p>
-                          </div>
+                          {registeredSubs.length > 0 && (
+                            <div className="bg-white rounded-xl border border-gray-100 p-2.5 space-y-2">
+                              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">🔗 Vincular sub y finalizar acuerdo</p>
+                              <select
+                                value={fallbackSubId[phase.id] ?? ''}
+                                onChange={e => setFallbackSubId(p => ({ ...p, [phase.id]: e.target.value }))}
+                                className="w-full px-2.5 py-2 rounded-lg border border-gray-200 text-xs text-gray-800 bg-white focus:outline-none focus:border-indigo-400"
+                              >
+                                <option value="">Selecciona un sub…</option>
+                                {registeredSubs.map(s => (
+                                  <option key={s.id} value={s.id}>{s.company}{s.trade ? ` · ${s.trade}` : ''}</option>
+                                ))}
+                              </select>
+                              <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>
+                                  <input type="number" placeholder="Monto acordado"
+                                    value={subNegotiate[phase.id] ?? ''}
+                                    onChange={e => setSubNegotiate(p => ({ ...p, [phase.id]: e.target.value }))}
+                                    className="w-full pl-5 pr-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-900 focus:outline-none focus:border-indigo-400"
+                                  />
+                                </div>
+                                <button
+                                  onClick={() => handleFallbackAgreed(phase)}
+                                  disabled={agreeSending[phase.id] || !fallbackSubId[phase.id] || !subNegotiate[phase.id]}
+                                  className="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg disabled:opacity-40 flex items-center gap-1 shrink-0 hover:bg-emerald-500 transition"
+                                >
+                                  {agreeSending[phase.id]
+                                    ? <><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"/>…</>
+                                    : '✅ Acordado'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
